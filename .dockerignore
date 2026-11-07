@@ -1,0 +1,39 @@
+# Version control
+.git
+.gitignore
+
+# Python artifacts
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.python-version
+uv.lock
+
+# Database / imported files (never bake local data into the image)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+data/
+
+# Local env files (secrets must be injected at runtime via -e / --env-file)
+.env
+deploy.env
+
+# Frontend build cache and dependencies (rebuilt inside Docker)
+frontend-v2/.next
+frontend-v2/node_modules
+frontend-v2/tsconfig.tsbuildinfo
+frontend-v2/.env.local
+
+# Development / docs
+docs
+testing.ipynb
+*.md
+
+# IDE
+.vscode
+.idea
+golden/files/

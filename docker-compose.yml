@@ -1,0 +1,121 @@
+services:
+  # ── FastAPI backend ──────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      target: backend
+    image: financial-tools-backend:latest
+    container_name: financial-tools-backend
+    environment:
+      # PostgreSQL externo en producción. Sin IP/credenciales hardcodeadas.
+      # Ejemplo: postgresql+psycopg://usuario:contraseña@host:5432/financial
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/financial.db}
+      # Producción: ENV=production (cookie __Host- + Secure).
+      # Desarrollo local por HTTP: ENV=dev y COOKIE_SECURE=false.
+      ENV: ${ENV:-production}
+      DATA_DIR: /data/files
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET debe estar definido}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      # Decisor Jev / TypeSafe
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-jev-latest}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://api.typesafe.ai/v1/systemone}
+      JEV_TIMEOUT: ${JEV_TIMEOUT:-5}
+      JEV_MAX_RETRIES: ${JEV_MAX_RETRIES:-2}
+      JEV_BACKOFF: ${JEV_BACKOFF:-0.5}
+      JEV_MAX_CALLS_PER_RUN: ${JEV_MAX_CALLS_PER_RUN:-50}
+      # Modelo documental / agente de extracción
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-deepseek-v4.1-flash}
+      OPENCODE_FALLBACK_MODELS: ${OPENCODE_FALLBACK_MODELS:-glm-5.3-flash,qwen3.8-flash,mimo-v2.6-flash,gpt-6-luna}
+      OPENCODE_TIMEOUT: ${OPENCODE_TIMEOUT:-60}
+      OPENCODE_MAX_RETRIES: ${OPENCODE_MAX_RETRIES:-3}
+      OPENCODE_BACKOFF: ${OPENCODE_BACKOFF:-0.5}
+      OPENCODE_MIN_ALLOWANCE_PCT: ${OPENCODE_MIN_ALLOWANCE_PCT:-20}
+      IMPORT_QUEUE_MODE: ${IMPORT_QUEUE_MODE:-worker}
+    volumes:
+      - financial-data:/data
+    expose:
+      - "8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v3/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  # ── Worker de importaciones (misma imagen, sin puerto) ───────────────────
+  import-worker:
+    build:
+      context: .
+      target: backend
+    image: financial-tools-backend:latest
+    container_name: financial-tools-import-worker
+    command: ["python", "-m", "src.import_worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/financial.db}
+      ENV: ${ENV:-production}
+      DATA_DIR: /data/files
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET debe estar definido}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-jev-latest}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://api.typesafe.ai/v1/systemone}
+      JEV_TIMEOUT: ${JEV_TIMEOUT:-5}
+      JEV_MAX_RETRIES: ${JEV_MAX_RETRIES:-2}
+      JEV_BACKOFF: ${JEV_BACKOFF:-0.5}
+      JEV_MAX_CALLS_PER_RUN: ${JEV_MAX_CALLS_PER_RUN:-50}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-deepseek-v4.1-flash}
+      OPENCODE_FALLBACK_MODELS: ${OPENCODE_FALLBACK_MODELS:-glm-5.3-flash,qwen3.8-flash,mimo-v2.6-flash,gpt-6-luna}
+      OPENCODE_TIMEOUT: ${OPENCODE_TIMEOUT:-60}
+      OPENCODE_MAX_RETRIES: ${OPENCODE_MAX_RETRIES:-3}
+      OPENCODE_BACKOFF: ${OPENCODE_BACKOFF:-0.5}
+      OPENCODE_MIN_ALLOWANCE_PCT: ${OPENCODE_MIN_ALLOWANCE_PCT:-20}
+      IMPORT_QUEUE_MODE: worker
+      OCR_LANG: ${OCR_LANG:-spa+eng}
+      OCR_DPI: ${OCR_DPI:-250}
+    volumes:
+      - financial-data:/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  # ── Next.js frontend ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      target: frontend
+      args:
+        BACKEND_URL: http://backend:8001
+    image: financial-tools-frontend:latest
+    container_name: financial-tools-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  financial-data:

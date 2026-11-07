@@ -1,0 +1,58 @@
+[project]
+name = "financial-tools"
+version = "0.2.0"
+description = "Panel personal de finanzas: ingesta, deduplicación, clasificación, cuentas, cartera y auth"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.18.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.18",
+    "yfinance>=1.0.0",
+    # PostgreSQL-first: driver psycopg v3 (SQLite sigue soportado en dev/tests)
+    "psycopg[binary]>=3.2",
+    # Auth: Argon2id + settings tipados + cliente HTTP
+    "argon2-cffi>=23.0.0",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.28.0",
+    # Ingesta documental: PDF, XLSX y OCR local (el LLM sigue siendo DeepSeek).
+    "pdfplumber>=0.11",
+    "openpyxl>=3.1",
+    "pypdfium2>=4.30",
+    "pytesseract>=0.3.13",
+    "Pillow>=10.0",
+    # Compatibilidad con despliegues antiguos; el camino nuevo usa psycopg 3.
+    "psycopg2-binary>=2.9.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.9.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["src/tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "frontend",
+    "frontend-v2",
+    "alembic/versions",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # line-length lo controla el formateador
+    "B008",  # Depends()/File() en defaults de FastAPI
+    "UP042", # str+Enum es válido y mantiene compatibilidad Pydantic
+]
