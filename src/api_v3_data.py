@@ -22,26 +22,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from . import storage
 from .auth.dependencies import require_csrf, require_user
 from .classify.pipeline import classify_batch
 from .db.session import _session
 from .fx import amount_to_eur
 from .ingest.accounts import normalize_iban
 from .ingest.agentic import AgenticExtractionError
-from . import storage
 from .ingest_service import discard_extraction_cache, enqueue_import, process_import
 from .model_settings import load_model_settings, save_model_settings
-from .portfolio_service import (
-    AssetOperation,
-    OpeningPosition,
-    PortfolioSnapshot as PortfolioCalcSnapshot,
-    SnapshotPosition as PortfolioCalcPosition,
-    rebuild_portfolio,
-)
-from .taxonomy import (
-    category_paths,
-    ensure_default_child,
-)
 from .models import (
     Account,
     AccountBalanceSnapshot,
@@ -67,6 +56,21 @@ from .models import (
     RawRow,
     SourceFile,
     TagGroup,
+)
+from .portfolio_service import (
+    AssetOperation,
+    OpeningPosition,
+    rebuild_portfolio,
+)
+from .portfolio_service import (
+    PortfolioSnapshot as PortfolioCalcSnapshot,
+)
+from .portfolio_service import (
+    SnapshotPosition as PortfolioCalcPosition,
+)
+from .taxonomy import (
+    category_paths,
+    ensure_default_child,
 )
 
 router = APIRouter(

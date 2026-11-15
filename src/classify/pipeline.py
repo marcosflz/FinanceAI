@@ -12,10 +12,9 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from ..ingest.accounts import base_broker_type
-from .review_policy import keep_transfers_in_review
 from ..db.lookups import get_categorias_nombres, get_subtipo_descriptions
 from ..db.session import _session
+from ..ingest.accounts import base_broker_type
 from ..model_settings import load_model_settings
 from ..models import (
     Categoria,
@@ -54,6 +53,7 @@ from .memory import (
 from .memory import (
     record as memory_record,
 )
+from .review_policy import keep_transfers_in_review
 from .rules import RuleEngine
 
 logger = logging.getLogger(__name__)

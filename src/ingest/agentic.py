@@ -1821,7 +1821,7 @@ def _broker_type(
 def _chain_mismatches(balances: list[tuple[dict[str, Any], Decimal]]) -> int:
     """Filas cuya ``balance_after`` no se explica por la fila anterior."""
     mismatches = 0
-    for (_, previous), (event, balance) in zip(balances, balances[1:]):
+    for (_, previous), (event, balance) in zip(balances, balances[1:], strict=False):
         expected = previous + (event.get("amount") or Decimal("0"))
         if abs(expected - balance) > Decimal("0.01"):
             mismatches += 1

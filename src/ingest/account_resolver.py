@@ -107,7 +107,7 @@ def resolve_account(
         options: Iterable[object] = (),
     ) -> AccountMatch:
         account_id = getattr(account, "id", None)
-        option_ids = [getattr(item, "id") for item in options if getattr(item, "id", None) is not None]
+        option_ids = [item.id for item in options if getattr(item, "id", None) is not None]
         return AccountMatch(
             status=status,
             selected_account_id=account_id,

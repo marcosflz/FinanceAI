@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Iterable
-from typing import TypeVar
 
 from ..db.session import _session
 from ..ingest.accounts import is_transfer_type
@@ -22,7 +21,6 @@ from ..models import Classification, FinancialMovement, NormalizedEvent
 
 HUMAN_ORIGINS = {"user", "rule"}
 
-T = TypeVar("T")
 
 
 def is_transfer_movement(kind: str | None, broker_type: str | None) -> bool:
@@ -72,7 +70,7 @@ def hold_transfers_for_review(session, movement_ids: Iterable[int]) -> int:
     return held
 
 
-def keep_transfers_in_review(func: Callable[..., T]) -> Callable[..., T]:
+def keep_transfers_in_review[T](func: Callable[..., T]) -> Callable[..., T]:
     """Decorador: tras clasificar, las transferencias siguen en revisión."""
 
     @functools.wraps(func)
