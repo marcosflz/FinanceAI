@@ -15,21 +15,21 @@ validarlo y cambiar la carpeta cuando el backend v3 esté listo.
 
 ```bash
 cd frontend-v2
-npm install
+pnpm install
 cp .env.example .env.local       # opcional
-npm run dev                      # http://localhost:3000
+pnpm run dev                      # http://localhost:3000
 ```
 
 Con backend real en `http://localhost:8001`:
 
 ```bash
-BACKEND_URL=http://localhost:8001 npm run dev
+BACKEND_URL=http://localhost:8001 pnpm run dev
 ```
 
 Para revisar todas las pantallas sin backend (login demo + mocks):
 
 ```bash
-NEXT_PUBLIC_DEMO_MODE=true npm run dev
+NEXT_PUBLIC_DEMO_MODE=true pnpm run dev
 ```
 
 En ese modo `/login` muestra **Entrar en modo demo** y escribe una cookie
@@ -40,19 +40,19 @@ Si quieres previsualizar un `next build`/`next start` en modo demo, la variable
 se inlinea en build:
 
 ```bash
-NEXT_PUBLIC_DEMO_MODE=true npm run build
-NEXT_PUBLIC_DEMO_MODE=true npm run start
+NEXT_PUBLIC_DEMO_MODE=true pnpm run build
+NEXT_PUBLIC_DEMO_MODE=true pnpm run start
 ```
 
 Calidad:
 
 ```bash
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
-Resultado local: `npm install` correcto, `tsc --noEmit` sin errores, `eslint` sin
+Resultado local: `pnpm install` correcto, `tsc --noEmit` sin errores, `eslint` sin
 errores ni warnings y `next build` correcto (10 rutas). Next 16 avisa de que
 `middleware.ts` está deprecado en favor de `proxy.ts`; se mantiene
 `middleware.ts` porque es el contrato pedido por F5. Migrar a `proxy.ts` es una

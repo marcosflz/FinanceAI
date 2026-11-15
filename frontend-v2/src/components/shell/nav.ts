@@ -1,8 +1,10 @@
 import {
+  Bot,
   ChartNoAxesCombined,
   LayoutDashboard,
   ListFilter,
   Settings,
+  Sparkles,
   UploadCloud,
   Wallet,
   type LucideIcon,
@@ -57,6 +59,22 @@ export const navItems: NavItem[] = [
     icon: ChartNoAxesCombined,
     description: "Posiciones, asignación y P&L",
     keywords: ["cartera", "inversión", "posiciones", "etf", "cripto", "p&l"],
+  },
+  {
+    href: "/assistant",
+    label: "Asistente",
+    shortLabel: "IA",
+    icon: Sparkles,
+    description: "Chat con tus finanzas y aprobaciones",
+    keywords: ["ia", "chat", "asistente", "agente", "preguntar"],
+  },
+  {
+    href: "/automations",
+    label: "Automatizaciones",
+    shortLabel: "Bots",
+    icon: Bot,
+    description: "Resúmenes y revisiones programadas",
+    keywords: ["bots", "programar", "cron", "alertas", "resumen semanal"],
   },
   {
     href: "/settings",

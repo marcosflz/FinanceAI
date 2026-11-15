@@ -43,9 +43,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_settings()
     reset_engine()
 
-    from src.models import Base
+    from src.models import Base, CentralBase
 
     Base.metadata.create_all(get_engine())
+    CentralBase.metadata.create_all(get_engine())
     with session_scope() as s:
         create_user(
             s,

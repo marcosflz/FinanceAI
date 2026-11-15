@@ -13,7 +13,6 @@ import json
 import os
 import pickle
 import re
-import shutil
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
@@ -68,10 +67,16 @@ from .models import (
     RawRow,
     SourceFile,
 )
+from . import storage
 from .taxonomy import category_paths, resolve_assignable_category
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "data/files"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _data_dir() -> Path:
+    """Ficheros del tenant actual (``per_user``) o ``DATA_DIR`` (modo single)."""
+    return storage.files_dir(DATA_DIR)
 
 # Kinds que se consideran hechos deterministas del broker y se auto-aprueban.
 DEFAULT_AUTO_APPROVE_KINDS = {
@@ -181,17 +186,14 @@ _EXTRACTION_CACHE_VERSION = 1
 
 
 def _extraction_cache_path(file_hash: str) -> Path:
-    return DATA_DIR / f"{file_hash}.extraction.pkl"
+    return _data_dir() / f"{file_hash}.extraction.pkl"
 
 
 def save_extraction_cache(file_hash: str, extraction: ExtractedStatement) -> None:
     try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         payload = {"version": _EXTRACTION_CACHE_VERSION, "extraction": extraction}
-        tmp = _extraction_cache_path(file_hash).with_suffix(".tmp")
-        with open(tmp, "wb") as fh:
-            pickle.dump(payload, fh)
-        os.replace(tmp, _extraction_cache_path(file_hash))
+        # Cifrado con la subclave de ficheros del usuario si procede.
+        storage.write_bytes(_extraction_cache_path(file_hash), pickle.dumps(payload))
     except OSError:
         pass  # la caché es una optimización; nunca bloquea el import
 
@@ -201,8 +203,8 @@ def load_extraction_cache(file_hash: str) -> ExtractedStatement | None:
     if not path.exists():
         return None
     try:
-        with open(path, "rb") as fh:
-            payload = pickle.load(fh)  # fichero propio en DATA_DIR
+        # Fichero propio del tenant (y autenticado con AES-GCM si va cifrado).
+        payload = pickle.loads(storage.read_bytes(path))
     except Exception:  # caché corrupta o de otra versión: se ignora
         return None
     if not isinstance(payload, dict) or payload.get("version") != _EXTRACTION_CACHE_VERSION:
@@ -406,9 +408,9 @@ def _quarantine_import(
     dejar datos a medias; al reprocesar se crean de cero.
     """
     suffix = Path(filepath).suffix or ".csv"
-    dest = DATA_DIR / f"{file_hash}{suffix}"
+    dest = _data_dir() / f"{file_hash}{suffix}"
     if not dest.exists():
-        shutil.copy2(filepath, dest)
+        storage.store_copy(filepath, dest)
     if isinstance(extraction, ExtractedStatement):
         save_extraction_cache(file_hash, extraction)
     probe = probe_file(Path(filepath))
@@ -586,7 +588,7 @@ def enqueue_import(
     file_hash = hashlib.sha256(raw_bytes).hexdigest()
     probe = probe_file(source_path)
     suffix = source_path.suffix or ".csv"
-    dest = DATA_DIR / f"{file_hash}{suffix}"
+    dest = _data_dir() / f"{file_hash}{suffix}"
 
     with _session() as s:
         existing = s.query(SourceFile).filter_by(file_hash=file_hash).first()
@@ -600,7 +602,7 @@ def enqueue_import(
                 f"Fichero duplicado (id={existing.id}): '{existing.filename}'"
             )
         if not dest.exists():
-            shutil.copy2(source_path, dest)
+            storage.store_copy(source_path, dest)
         sf = SourceFile(
             source="agentic_statement",
             filename=original_filename or source_path.name,
@@ -765,9 +767,9 @@ def _process_portfolio_snapshot_import(
             )
             s.add(sf)
             s.flush()
-        dest = Path(sf.storage_path) if sf.storage_path else DATA_DIR / f"{file_hash}{suffix}"
+        dest = Path(sf.storage_path) if sf.storage_path else _data_dir() / f"{file_hash}{suffix}"
         if not Path(dest).exists():
-            shutil.copy2(filepath, dest)
+            storage.store_copy(filepath, dest)
         sf.source = extraction.source
         sf.filename = original_filename or sf.filename
         sf.period_start = snapshot.snapshot_date
@@ -1155,9 +1157,9 @@ def process_import(
             s.query(RawRow).filter(RawRow.source_file_id == sf.id).delete(
                 synchronize_session=False
             )
-            dest = Path(sf.storage_path) if sf.storage_path else DATA_DIR / f"{file_hash}{suffix}"
+            dest = Path(sf.storage_path) if sf.storage_path else _data_dir() / f"{file_hash}{suffix}"
             if not dest.exists():
-                shutil.copy2(filepath, dest)
+                storage.store_copy(filepath, dest)
             sf.source = extraction.source
             sf.filename = original_filename or sf.filename
             sf.period_start = result.period_start
@@ -1178,8 +1180,8 @@ def process_import(
             )
             sf.error = None
         else:
-            dest = DATA_DIR / f"{file_hash}{suffix}"
-            shutil.copy2(filepath, dest)
+            dest = _data_dir() / f"{file_hash}{suffix}"
+            storage.store_copy(filepath, dest)
             sf = SourceFile(
                 source=extraction.source,
                 filename=original_filename or os.path.basename(filepath),

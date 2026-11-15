@@ -3,6 +3,39 @@
 Plan canónico copiado al repo: [`PLAN_2026-10-31.md`](./PLAN_2026-10-31.md).
 Estado global: **F0–F5 implementadas y verificadas en local; F6/F7 parciales**.
 
+## Asistente de IA y multi-tenant cifrado 2026-11-15
+
+Plan: `~/.claude/plans/pasted-content-id-d87d-quiero-dise-ar-sleepy-moore.md`.
+Diseño de seguridad: [`SECURITY_MODEL.md`](./SECURITY_MODEL.md).
+
+- **F0**: `frontend-v2/src/lib/` estaba excluido por la regla `lib/` del
+  `.gitignore` (plantilla Python) y faltaba en el checkout; regla acotada a
+  `/lib/` y carpeta restaurada desde la copia de Gitea. Docs a `pnpm`.
+- **F1**: metadatos separados (`CentralBase`: users, sessions, login_attempts,
+  central_jobs, worker_keys, key_leases; `Base`: datos del tenant).
+  `src/db/tenant.py` con `TenantContext` (ContextVar), registro LRU de motores
+  y migración a head al abrir. `_session()` resuelve el tenant del contexto;
+  en `per_user` sin contexto lanza `NoTenantContext`. `require_user` es
+  `async` para propagar el contexto. Hilos de clasificación con
+  `copy_context`. Cola central de importaciones (`src/jobs.py`).
+  Cadena Alembic central propia: `alembic_central/` (`c_001_central_foundation`,
+  idempotente sobre la BD única del modo single).
+- **F2**: SQLCipher (`sqlcipher3-binary`), jerarquía de claves
+  (`src/auth/keys.py`, `src/auth/tenancy.py`), ficheros cifrados
+  (`src/storage.py`), recuperación, invitaciones, exportación
+  (`src/api_account.py`) y UI en Ajustes → Seguridad, `/recover`, `/invite`.
+- **F3**: asistente (`src/agent/`: providers, tools, policy, runtime, hub;
+  `src/api_agent.py`), migración `v3_014_agent`, UI `/assistant` con tarjetas
+  de aprobación, gráficos y selector de modelo; Ajustes → Asistente.
+- **F4**: bots con cron (`src/agent/bots.py`) programados en `central_jobs`
+  (`kind=bot_run`) y ejecutados por el worker; `/automations` y campana de
+  avisos.
+- **Pendiente (F5)**: skills (requiere publicar `nas-adk` 0.5.0, hoy sin
+  commitear en su repo), suscripciones Claude/ChatGPT (revisar uso personal),
+  OpenUI, registro abierto, mover el clasificador a los proveedores del
+  usuario. Producción sigue en `TENANT_MODE=single` hasta decidir el corte.
+- Tests: `test_multitenant.py`, `test_agent.py`, `test_sqlite_numeric.py`.
+
 ## Nueva interfaz de importación 2026-11-04
 
 - `/imports` simplificado: subida directa, bandeja de aprobación y gestor de

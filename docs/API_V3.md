@@ -26,7 +26,18 @@ Respuesta de error homogénea:
 | GET | `/auth/me` | — | `{id, email, name, role}` |
 | PATCH | `/auth/profile` | `{name?, email?, current_password?}` | `{id, email, name, role}` |
 | POST | `/auth/change-password` | `{current_password, new_password}` | `{ok: true}` |
-| GET | `/health` | — | `{status, db, alembic, storage, models}` |
+| POST | `/auth/recover` (pública) | `{email, recovery_key, new_password}` | `{user, csrf_token, recovery_key}` + cookies |
+| POST | `/auth/accept-invite` (pública) | `{token, password, name?}` | `{user, csrf_token, recovery_key?}` + cookies |
+| POST | `/auth/recovery-key` | `{email, password}` | `{recovery_key}` (invalida la anterior) |
+| PUT | `/auth/automation` | `{enabled, password, days?}` | `{automation_until, workers}` |
+| GET | `/health` | — | `{status, database, tenancy, storage, …}` |
+
+**Aditivo 2026-11-15 (multi-tenant, ver [`SECURITY_MODEL.md`](./SECURITY_MODEL.md)):**
+`POST /auth/login` y `/auth/accept-invite` devuelven `recovery_key` **solo** cuando
+se acaban de crear las claves del usuario (primer acceso con
+`TENANT_MODE=per_user`); hay que mostrarla una vez. `GET /auth/me` añade
+`automation_until` y `tenancy: {mode, encryption}`. Un `409` en el login significa
+que la contraseña es válida pero la DEK no se desenvuelve.
 
 Sin sesión, todo lo demás devuelve `401`.
 
@@ -238,3 +249,66 @@ del snapshot) y nunca se ajusta sola. `dividendos` = bruto del evento − retenc
 
 Las API keys no se envían ni se persisten por esta vía. Prioridad de valores:
 `app_config` > entorno > default. Ver [`MODEL_SETTINGS.md`](./MODEL_SETTINGS.md).
+
+
+## Datos y usuarios (2026-11-15)
+
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/export/database` | `{password, format: sqlite\|sqlcipher, passphrase?}` → descarga `application/vnd.sqlite3` |
+| GET | `/admin/users` | Solo `role=admin`: `{items: [{id, email, role, disabled, invite_pending, encrypted, …}]}` |
+| POST | `/admin/users` | `{email, name?, role?}` → `{user, invite_token, invite_path}` (el token solo se devuelve aquí, 7 días) |
+| PATCH | `/admin/users/{id}` | `{disabled}`; deshabilitar revoca sesiones y concesiones |
+
+## Asistente de IA (2026-11-15)
+
+Proveedores por usuario (la API key vive en su SQLite cifrado; nunca se
+devuelve, solo `key_hint`):
+
+| Método | Ruta | Notas |
+|---|---|---|
+| GET | `/ai/catalog` | Proveedores soportados y modelos sugeridos; `fake: true` con `AGENT_FAKE_LLM=1` |
+| GET | `/ai/providers` | Configurados: `{provider, label, model, enabled, is_default, has_key, key_hint}` |
+| PUT | `/ai/providers/{id}` | `{api_key?, model?, enabled?, is_default?}`; el primero queda por defecto |
+| DELETE | `/ai/providers/{id}` | Borra la credencial |
+
+Conversaciones:
+
+| Método | Ruta | Notas |
+|---|---|---|
+| GET | `/agent/threads?origin=chat\|routine\|all` | Lista (máx. 200) |
+| POST | `/agent/threads` | `{title?}` |
+| GET | `/agent/threads/{id}` | `{thread, messages[{role, content, parts}], pending_approvals, active_run_id}` |
+| DELETE | `/agent/threads/{id}` | `409` si hay un turno en curso |
+| POST | `/agent/threads/{id}/messages` | `{message, provider?, model?}` → **SSE** |
+| POST | `/agent/threads/{id}/resume` | `{decisions: [{call_id, approved, selected_ids?, reason?}]}` → **SSE** |
+| GET | `/agent/runs/{id}/events?after=seq` | **SSE**: reproduce desde BD y sigue en vivo |
+
+Eventos SSE (`data: {json}`; cada uno con `seq`, `run_id`, `thread_id`):
+`RUN_STARTED`, `TEXT_DELTA {delta}`, `TOOL_CALL_START {call_id, name, args}`,
+`TOOL_CALL_RESULT {call_id, name, args, result}`,
+`APPROVAL_REQUIRED {approvals: [{id, call_id, tool, args, preview}]}`,
+`RUN_FINISHED {status: completed|interrupted}`, `RUN_ERROR {status, message}`.
+Se persisten en `agent_run_events` antes de emitirse; el turno sigue aunque el
+cliente se desconecte.
+
+Herramientas: lectura sin preguntar (`get_overview`, `search_movements`,
+`get_movement`, `spending_by_category`, `cashflow`, `top_merchants`,
+`list_accounts`, `get_portfolio`, `list_categories`, `list_rules`,
+`pending_review`), escritura con aprobación (`recategorize_movements`,
+`update_movement_fields`, `create_rule`, `create_category`) y presentación
+(`show_chart`). Cualquier otra herramienta se deniega. Con aprobaciones
+pendientes no se aceptan mensajes nuevos (`409`); hay que decidir **todas** las
+pendientes en un único `resume`. `selected_ids` aplica solo parte de un lote de
+`recategorize_movements`. `409` si no hay proveedor configurado.
+
+Automatizaciones y avisos:
+
+| Método | Ruta | Notas |
+|---|---|---|
+| GET | `/agent/bots/templates` | `cashflow_weekly`, `pending_review`, `portfolio_daily`, `monthly_report` |
+| GET/POST | `/agent/bots` | `{name, prompt, cron, timezone?, template?, enabled?, provider?, model?}`; cron con intervalo ≥ 15 min (`422`) |
+| PATCH/DELETE | `/agent/bots/{id}` | Reprograma o cancela el trabajo central |
+| POST | `/agent/bots/{id}/run` | Ejecuta ya con tu sesión → `{thread_id, status, error?}` |
+| GET | `/agent/notifications?unread=` | `{items, unread}` |
+| POST | `/agent/notifications/read` | Cuerpo: lista de ids o `null` (todas) |

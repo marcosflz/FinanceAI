@@ -11,12 +11,15 @@ expuesta públicamente.
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api_account import router as account_router
+from .api_agent import router as agent_router
 from .api_v3 import health_router, protected_router as v3_protected_router
 from .api_v3 import public_router as v3_public_router
 from .api_v3_data import router as v3_data_router
 from .auth.dependencies import require_csrf, require_user
 from .config import get_settings
 from .db.session import init_db
+from . import jobs as _jobs  # noqa: F401 — listeners de la cola central
 from .imports_api import router as imports_router
 from .v2_api import router as v2_router
 
@@ -43,6 +46,8 @@ _protected = [Depends(require_user), Depends(require_csrf)]
 app.include_router(v3_public_router)
 app.include_router(v3_protected_router)
 app.include_router(v3_data_router)
+app.include_router(account_router)
+app.include_router(agent_router)
 app.include_router(health_router)
 app.include_router(v2_router, prefix="/api/v3", dependencies=_protected)
 app.include_router(imports_router, prefix="/api/v3/imports", dependencies=_protected)
@@ -51,6 +56,9 @@ app.include_router(imports_router, prefix="/api/v3/imports", dependencies=_prote
 @app.on_event("startup")
 def startup():
     init_db()
+    if _settings.per_user:
+        # Los jobs de clasificación viven en cada tenant; se limpian al abrirlo.
+        return
     try:
         from .v2_api import cleanup_stale_jobs
 

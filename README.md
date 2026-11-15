@@ -22,7 +22,7 @@ la guía para agentes y el protocolo de obtención de contexto están en
   las reglas base están sin sembrar.
 - **Taxonomía**: dos niveles (raíz + subcategoría plana), `Otros` por defecto y
   herencia obligatoria de `tratamiento`/`excluir_kpis`. Migración actual:
-  `v3_013_import_portfolio`. Ver “Taxonomía y KPIs”.
+  `v3_014_agent`. Ver “Taxonomía y KPIs”.
 - **KPIs**: transferencias internas y compras/ventas de inversión se excluyen
   por categoría y por `kind`; dividendos e intereses cuentan como ingreso. El
   saveback en activo se clasifica en `Inversiones › Cashback` y no infla los
@@ -30,7 +30,8 @@ la guía para agentes y el protocolo de obtención de contexto están en
 - **Auth**: login email/password, Argon2id, sesiones opacas en PostgreSQL,
   CSRF, rate limit y cookies seguras. Perfil editable (nombre, email y
   contraseña) desde **Ajustes → General/Seguridad**. Sin 2FA por ahora. La app
-  es **single-user**: no hay registro público ni taxonomía por usuario.
+  es **single-user** en `TENANT_MODE=single`; con `per_user` cada usuario
+  tiene su propia BD (y su taxonomía). No hay registro público: solo invitación.
 - **Ajustes de modelos**: contexto de Jev, lote, límite de llamadas, modelo
   documental/fallback y OCR editables desde **Ajustes → Modelos**
   ([`docs/MODEL_SETTINGS.md`](docs/MODEL_SETTINGS.md)).
@@ -39,8 +40,21 @@ la guía para agentes y el protocolo de obtención de contexto están en
   cartera y ajustes. El `frontend/` legacy se retiró en la limpieza 2026-11-04;
 el Docker   construye `frontend-v2/`.
 - **IA**: cliente Python directo de OpenCode Go (`deepseek-v4.1-flash` por
-  defecto, fallback dentro de Go) y cliente Jev; sin OpenRouter y sin agente
-  OpenCode embebido.
+  defecto, fallback dentro de Go) y cliente Jev para ingesta y clasificación.
+- **Asistente de IA (2026-11-15)**: chat en `/assistant` sobre `nas-adk` 0.4.0
+  con herramientas de lectura (KPIs, movimientos, cartera, taxonomía…) y de
+  escritura que **siempre** piden aprobación en una tarjeta (lotes con
+  aceptación fila a fila); auditoría en `agent_audit`. Cada usuario configura
+  su proveedor y API key en **Ajustes → Asistente** (OpenCode Go, Anthropic,
+  OpenRouter, OpenAI, Gemini, DeepSeek). Automatizaciones con cron en
+  `/automations` (plantillas: flujo semanal, pendientes, cartera, informe
+  mensual) que ejecuta el worker y notifican en la barra superior.
+- **Multi-tenant (2026-11-15, opt-in)**: `TENANT_MODE=per_user` separa una BD
+  central (auth, cola, concesiones) de un SQLite **SQLCipher por usuario** con
+  clave derivada de su contraseña (Argon2id), clave de recuperación, alta por
+  invitación, exportación de la BD y concesión de clave al worker solo en RAM.
+  El modo por defecto sigue siendo `single`. Ver
+  [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md).
 
 ### Datos actuales (2026-11-04)
 
@@ -54,7 +68,7 @@ el Docker   construye `frontend-v2/`.
 | Clasificaciones vigentes | **0** |
 | Pendientes de clasificar | **0** |
 | Activos / operaciones / posiciones | **0 / 0 / 0** |
-| Migración | **`v3_013_import_portfolio`** |
+| Migración | **`v3_014_agent`** (central: `c_001_central_foundation`) |
 
 ## Taxonomía y KPIs (estado 2026-11-02)
 
@@ -155,8 +169,8 @@ uvicorn src.api:app --reload --port 8001
 
 # Frontend
 cd frontend-v2
-npm install
-BACKEND_URL=http://localhost:8001 npm run dev
+pnpm install
+BACKEND_URL=http://localhost:8001 pnpm run dev
 ```
 
 Abre `http://localhost:3000`. Sin sesión, cualquier ruta redirige a `/login`;
@@ -289,9 +303,9 @@ pytest -q
 python -m compileall -q src scripts
 
 cd frontend-v2
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
 Cobertura actual: **236 tests** backend (auth, migraciones, ingesta agéntica,

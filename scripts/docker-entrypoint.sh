@@ -22,8 +22,20 @@ if [ -n "${DATABASE_URL:-}" ]; then
     esac
 fi
 
-echo "[entrypoint] Aplicando migraciones de Alembic..."
-python -m alembic upgrade head
+: "${TENANT_MODE:=single}"
+if [ "$TENANT_MODE" = "per_user" ] || [ "$TENANT_MODE" = "per-user" ]; then
+    # Cada SQLite de usuario se migra al abrirse (necesita su clave); aquí
+    # solo la BD central.
+    : "${TENANT_DIR:=/data/tenants}"
+    export TENANT_DIR
+    mkdir -p "$TENANT_DIR"
+    echo "[entrypoint] Migrando BD central..."
+    python -m alembic -c alembic_central.ini upgrade head
+else
+    echo "[entrypoint] Aplicando migraciones de Alembic..."
+    python -m alembic upgrade head
+    python -m alembic -c alembic_central.ini upgrade head
+fi
 echo "[entrypoint] Migraciones aplicadas."
 
 # Seed opcional e idempotente del admin (solo si hay credencial configurada).

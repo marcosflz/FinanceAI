@@ -25,7 +25,7 @@ if __package__ in (None, ""):
 from src.auth.passwords import hash_password, validate_password_strength
 from src.auth.service import upsert_admin
 from src.config import get_settings
-from src.db.session import _session, init_db
+from src.db.session import central_session, init_db
 
 
 def _resolve_password(
@@ -83,7 +83,7 @@ def run(
     )
 
     init_db()
-    with _session() as session:
+    with central_session() as session:
         user, created = upsert_admin(
             session, email=resolved_email, password_hash=resolved_hash
         )

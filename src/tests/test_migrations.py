@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-HEAD = "v3_013_import_portfolio"
+HEAD = "v3_014_agent"
 
 
 def _run_alembic(db_path: Path, *args: str) -> subprocess.CompletedProcess:
@@ -73,6 +73,11 @@ def _assert_foundation_schema(db_path: Path) -> None:
         "account_currency_balances",
         "portfolio_snapshots",
         "portfolio_snapshot_positions",
+        "ai_providers",
+        "chat_threads",
+        "agent_runs",
+        "agent_approvals",
+        "bots",
         "asset_opening_positions",
     } <= tables
     assert {

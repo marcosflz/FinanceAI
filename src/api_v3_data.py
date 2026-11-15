@@ -28,6 +28,7 @@ from .db.session import _session
 from .fx import amount_to_eur
 from .ingest.accounts import normalize_iban
 from .ingest.agentic import AgenticExtractionError
+from . import storage
 from .ingest_service import discard_extraction_cache, enqueue_import, process_import
 from .model_settings import load_model_settings, save_model_settings
 from .portfolio_service import (
@@ -1049,13 +1050,14 @@ def reprocess_import(import_id: int):
             s.flush()
             return _import_summary(s, sf)
     try:
-        process_import(
-            path,
-            force=True,
-            original_filename=sf.filename,
-            account_id=sf.account_id,
-            source_file_id=sf.id,
-        )
+        with storage.plaintext_path(path) as readable:
+            process_import(
+                readable,
+                force=True,
+                original_filename=sf.filename,
+                account_id=sf.account_id,
+                source_file_id=sf.id,
+            )
     except AgenticExtractionError as exc:
         raise HTTPException(422, str(exc)) from exc
     except ValueError as exc:
@@ -1180,14 +1182,15 @@ def change_import_account(import_id: int, body: ImportAccountPatch):
         summary = _import_summary(s, sf)
     if _import_queue_mode() != "worker":
         try:
-            process_import(
-                sf.storage_path or "",
-                force=True,
-                original_filename=sf.filename,
-                account_id=body.account_id,
-                source_file_id=import_id,
-                reuse_extraction=True,
-            )
+            with storage.plaintext_path(sf.storage_path or "") as readable:
+                process_import(
+                    readable,
+                    force=True,
+                    original_filename=sf.filename,
+                    account_id=body.account_id,
+                    source_file_id=import_id,
+                    reuse_extraction=True,
+                )
         except (AgenticExtractionError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         with _session() as s:
@@ -1271,14 +1274,15 @@ def confirm_import_account(import_id: int, body: ImportAccountConfirmation):
 
     if _import_queue_mode() != "worker":
         try:
-            process_import(
-                sf.storage_path or "",
-                force=True,
-                original_filename=sf.filename,
-                account_id=account.id,
-                source_file_id=import_id,
-                reuse_extraction=True,
-            )
+            with storage.plaintext_path(sf.storage_path or "") as readable:
+                process_import(
+                    readable,
+                    force=True,
+                    original_filename=sf.filename,
+                    account_id=account.id,
+                    source_file_id=import_id,
+                    reuse_extraction=True,
+                )
         except (AgenticExtractionError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         with _session() as s:

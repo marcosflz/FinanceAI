@@ -27,7 +27,7 @@ from src.auth.tokens import (
 )
 from src.config import Settings, reset_settings
 from src.db.session import get_engine, reset_engine, session_scope
-from src.models import Base, LoginAttempt, Session as UserSession, User
+from src.models import Base, CentralBase, LoginAttempt, Session as UserSession, User
 
 ADMIN_PASSWORD = "CorrectHorseBatteryStaple1"
 NEW_PASSWORD = "AnotherVeryLongPassword2"
@@ -52,6 +52,7 @@ def app_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_engine()
     engine = get_engine()
     Base.metadata.create_all(engine)
+    CentralBase.metadata.create_all(engine)
     try:
         yield db_path
     finally:

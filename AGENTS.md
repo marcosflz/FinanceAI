@@ -40,7 +40,8 @@ hay que releerlo entero para tareas normales.
 | Pendientes de clasificar | **0** |
 | Reglas / memoria | **0 / 0** |
 | Activos / operaciones / posiciones | **0 / 0 / 0** |
-| Migración actual | **`v3_013_import_portfolio`** |
+| Migración actual | **`v3_014_agent`** · central **`c_001_central_foundation`** |
+| Tenencia | **`per_user` en producción desde 2026-11-15** (SQLCipher; PostgreSQL queda como histórico) |
 | Backend | FastAPI + SQLAlchemy 2 + PostgreSQL |
 | Frontend | `frontend-v2/` (Next.js) |
 | Worker | `import-worker` |
@@ -53,7 +54,9 @@ Pendiente operativo:
 - Revisar los 208 movimientos pendientes.
 - La cuenta Trade Republic está sin IBAN y con saldo inicial 0 (el CSV no trae
   saldo de apertura).
-- No hay aislamiento de taxonomía por usuario.
+- Con `TENANT_MODE=single` no hay aislamiento por usuario; con `per_user`
+  cada usuario tiene su SQLite cifrado (ver `docs/SECURITY_MODEL.md`).
+- Pendiente F5: skills (publicar `nas-adk` 0.5.0), suscripciones, OpenUI.
 
 ---
 
@@ -70,13 +73,22 @@ src/
   ingest/agentic.py      # extractor CSV/TSV/XLSX/PDF/OCR
   ingest/accounts.py     # cuentas, IBAN, transferencias internas
   ingest/internal_transfers.py
+  db/tenant.py           # TenantContext, motores por usuario, migrar al abrir
+  auth/keys.py           # DEK/KEK, recuperación, sellado X25519
+  auth/tenancy.py        # claves en login/sesión, concesiones al worker
+  storage.py             # ficheros del tenant (cifrados en per_user)
+  jobs.py                # cola central (central_jobs)
+  agent/                 # asistente: providers, tools, policy, runtime, hub, bots
+  api_agent.py           # /ai/*, /agent/* (SSE)
+  api_account.py         # export de BD, /admin/users
   classify/              # reglas, memoria, pipeline, Jev, LLM
   taxonomy.py            # dos niveles, resolución raíz→hoja
   models.py              # SQLAlchemy
   db/session.py          # engine/session
   import_worker.py       # worker persistente
   ai/                    # OpenCode Go, Jev, OCR, schemas
-alembic/versions/        # migraciones; head actual v3_013_import_portfolio
+alembic/versions/        # migraciones del tenant; head actual v3_014_agent
+alembic_central/         # migraciones de la BD central (c_001…)
 frontend-v2/             # UI vigente; el Docker usa esta carpeta
 scripts/                 # deploy, migraciones, seeds, verificación
 docs/                    # estado, API, runbooks, ingesta, modelos
@@ -146,6 +158,9 @@ Orden recomendado:
 
 ### 3.4 Base de datos y producción
 
+- Con `TENANT_MODE=per_user` los datos de cada usuario solo se abren con su
+  DEK (sesión o concesión del worker). Los scripts que usan `_session()` no
+  funcionan sin `use_tenant(...)`; el admin no puede abrir BD ajenas.
 - Producción: PostgreSQL; credenciales en
   `~/.config/financial-tools/deploy.env` (nunca imprimir secretos).
 - Antes de escribir en producción: backup `pg_dump`.
@@ -163,9 +178,9 @@ python -m compileall -q src alembic
 pytest -q
 
 cd frontend-v2
-npm run typecheck
-npm run lint
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm run build
 ```
 
 Si el cambio toca producción:
@@ -284,12 +299,16 @@ Si la tarea es “endurecer” esto, el orden recomendado es:
 
 ## 5. Bases de datos y migraciones
 
-- Head actual: `v3_013_import_portfolio`.
+- Head actual: `v3_014_agent` (tenant). Central: `c_001_central_foundation`
+  (`alembic -c alembic_central.ini upgrade head`, tabla `alembic_version_central`).
+- `v3_014_agent`: proveedores de IA, conversaciones, runs/eventos,
+  aprobaciones, auditoría, bots y notificaciones (todo por usuario).
 - `v3_011_two_level_taxonomy`: dos niveles, Inversiones/Ventas/Cashback.
 - `v3_012_reclass_inv_cashback`: reclasifica datos ya importados.
 - `v3_013_import_portfolio`: saldos por divisa, FX EUR, snapshots de
   patrimonio, aperturas de cartera y trazabilidad de cuenta en operaciones.
-- El entrypoint de Docker aplica `alembic upgrade head`.
+- El entrypoint de Docker aplica la cadena central y, en modo `single`,
+  también `alembic upgrade head`. En `per_user` cada SQLite se migra al abrirse.
 - Para una migración nueva:
   - `alembic revision -m ...`;
   - probar en SQLite temporal;
@@ -313,7 +332,7 @@ No tocar `financial.db` local si existe; está fuera del flujo actual.
 .venv/bin/python -m compileall -q src alembic
 
 # frontend
-cd frontend-v2 && npm run typecheck && npm run lint && npm run build
+cd frontend-v2 && pnpm run typecheck && pnpm run lint && pnpm run build
 
 # producción
 scripts/docker-deploy.sh build backend frontend

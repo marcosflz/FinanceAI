@@ -8,10 +8,11 @@ function hasSessionCookie(request: NextRequest): boolean {
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  const isLogin = pathname === "/login";
+  // Pantallas públicas: acceso, recuperación con clave e invitaciones.
+  const isPublic = ["/login", "/recover", "/invite"].includes(pathname);
   const authenticated = hasSessionCookie(request);
 
-  if (!authenticated && !isLogin) {
+  if (!authenticated && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";

@@ -2,6 +2,7 @@
 API endpoints para el modelo v2 (financial_movements, clasificación, analytics).
 """
 
+import contextvars
 import json
 import threading
 from datetime import date, datetime
@@ -12,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from .db.session import _session
+from .db.tenant import current_tenant
 from .models import (
     AppConfig, ClassificationJob, FinancialMovement, NormalizedEvent,
     Classification, ClassificationRule, Categoria, MovementSource,
@@ -34,14 +36,21 @@ from sqlalchemy import func, or_, select
 # ── Background classification jobs ────────────────────────────────────────────
 
 _BATCH_SIZE = 25
-_cancel_flags: dict[int, threading.Event] = {}
+# Clave (tenant, job_id): los ids de classification_jobs se repiten entre
+# las BD de distintos usuarios.
+_cancel_flags: dict[tuple[str, int], threading.Event] = {}
 _job_lock = threading.Lock()
+
+
+def _flag_key(job_id: int) -> tuple[str, int]:
+    ctx = current_tenant()
+    return (ctx.tenant_id if ctx is not None else "", job_id)
 
 
 @keep_transfers_in_review
 def _run_classify_job(job_id: int) -> None:
     """Worker: reglas + memoria para todos, luego LLM por batches de 25."""
-    cancel = _cancel_flags.get(job_id)
+    cancel = _cancel_flags.get(_flag_key(job_id))
     log: list[dict] = []
     _log_processed = 0
 
@@ -316,7 +325,7 @@ def _run_classify_job(job_id: int) -> None:
             )
             s.commit()
     finally:
-        _cancel_flags.pop(job_id, None)
+        _cancel_flags.pop(_flag_key(job_id), None)
 
 router = APIRouter(tags=["v2"])
 
@@ -1307,7 +1316,7 @@ def start_classify_job():
         now = datetime.utcnow()
         for job in stale:
             # Stale if: no thread running OR older than 1 min (thread died)
-            has_thread = _cancel_flags.get(job.id) is not None
+            has_thread = _cancel_flags.get(_flag_key(job.id)) is not None
             is_old = job.created_at and (now - job.created_at).total_seconds() > 60
             if not has_thread or is_old:
                 job.status = "failed"
@@ -1324,8 +1333,13 @@ def start_classify_job():
         s.commit()
 
     with _job_lock:
-        _cancel_flags[job_id] = threading.Event()
-        t = threading.Thread(target=_run_classify_job, args=(job_id,), daemon=True)
+        _cancel_flags[_flag_key(job_id)] = threading.Event()
+        # copy_context: el hilo hereda el tenant (y su clave) de la petición.
+        t = threading.Thread(
+            target=contextvars.copy_context().run,
+            args=(_run_classify_job, job_id),
+            daemon=True,
+        )
         t.start()
 
     return {"job_id": job_id}
@@ -1357,7 +1371,7 @@ def get_active_classify_job():
 def cancel_classify_job(job_id: int):
     """Cancela un job de clasificación en ejecución."""
     with _job_lock:
-        ev = _cancel_flags.get(job_id)
+        ev = _cancel_flags.get(_flag_key(job_id))
         if ev:
             ev.set()
             return {"ok": True, "status": "cancelling"}

@@ -5,7 +5,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, declarative_base
 
+# ``Base``: tablas de datos de cada usuario (tenant). ``CentralBase``: BD
+# orquestadora (auth, enrutado a tenants, cola de trabajos y concesiones de
+# clave). Nunca se declara una FK entre ambos metadatos.
 Base = declarative_base()
+CentralBase = declarative_base()
 
 
 class Documento(Base):
@@ -812,73 +816,6 @@ class PositionSnapshot(Base):
 
 
 
-# ── AUTENTICACIÓN (F0) ───────────────────────────────────────────────────────
-
-
-class User(Base):
-    """Usuario de la aplicación (single-user por ahora, rol admin)."""
-
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), nullable=False, unique=True, index=True)
-    name = Column(String(120), nullable=True)
-    password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="admin")
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    last_login_at = Column(DateTime, nullable=True)
-    disabled = Column(Boolean, nullable=False, default=False)
-
-    sessions = relationship(
-        "Session", back_populates="user", cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:  # pragma: no cover - evita exponer el hash
-        return f"<User {self.email!r}>"
-
-
-class Session(Base):
-    """Sesión opaca revocable. Solo se guarda el SHA-256 del token."""
-
-    __tablename__ = "sessions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    token_hash = Column(String(64), nullable=False, unique=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=False)
-    last_seen_at = Column(DateTime, nullable=True)
-    ip = Column(String(45), nullable=True)
-    user_agent = Column(String(500), nullable=True)
-    revoked_at = Column(DateTime, nullable=True)
-
-    user = relationship("User", back_populates="sessions")
-
-    __table_args__ = (
-        Index("ix_sessions_user_revoked", "user_id", "revoked_at"),
-        Index("ix_sessions_expires_at", "expires_at"),
-    )
-
-
-class LoginAttempt(Base):
-    """Auditoría de intentos de login para rate limit y diagnóstico."""
-
-    __tablename__ = "login_attempts"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), nullable=True)
-    ip = Column(String(45), nullable=True)
-    ok = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
-
-    __table_args__ = (
-        Index("ix_login_attempts_email_created", "email", "created_at"),
-        Index("ix_login_attempts_ip_created", "ip", "created_at"),
-    )
-
-
 class AccountBalanceSnapshot(Base):
     """Conciliación de saldo declarado (extracto) vs calculado por la app."""
 
@@ -1012,4 +949,318 @@ class AssetOpeningPosition(Base):
             name="uq_asset_opening_account_asset_date",
         ),
         Index("ix_aop_account_asset_date", "account_id", "asset_id", "as_of_date"),
+    )
+
+
+# ── ASISTENTE DE IA Y AUTOMATIZACIONES (por usuario, dentro de su SQLite) ──
+# Viven en la BD del tenant: las claves de los proveedores de IA, las
+# conversaciones y los resultados de los bots quedan cifrados con la DEK.
+
+
+class AiProvider(Base):
+    """Credencial de un proveedor de IA del usuario (catálogo en src/agent/providers.py)."""
+
+    __tablename__ = "ai_providers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String(40), nullable=False, unique=True)
+    api_key = Column(Text, nullable=True)
+    model = Column(String(120), nullable=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    is_default = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+
+class ChatThread(Base):
+    """Conversación con el asistente (chat o ejecución de un bot)."""
+
+    __tablename__ = "chat_threads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(200), nullable=False, default="Nueva conversación")
+    origin = Column(String(20), nullable=False, default="chat")  # chat | routine
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="SET NULL"), nullable=True)
+    provider = Column(String(40), nullable=True)
+    model = Column(String(120), nullable=True)
+    # Sesión nas-adk serializada (eventos + estado): permite reanudar tras una
+    # aprobación aunque el proceso se haya reiniciado.
+    session_json = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="idle")  # idle | running | awaiting_approval
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_chat_threads_updated", "updated_at"),)
+
+
+class ChatMessage(Base):
+    """Mensaje visible en la UI (texto, herramientas y widgets como ``parts``)."""
+
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(
+        Integer, ForeignKey("chat_threads.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True)
+    role = Column(String(20), nullable=False)  # user | assistant
+    content = Column(Text, nullable=True)
+    parts_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(
+        Integer, ForeignKey("chat_threads.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    initiator = Column(String(20), nullable=False, default="user")  # user | bot
+    status = Column(String(20), nullable=False, default="running")
+    # running | completed | interrupted | error | budget_exhausted | cancelled
+    provider = Column(String(40), nullable=True)
+    model = Column(String(120), nullable=True)
+    usage_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    last_seq = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class AgentRunEvent(Base):
+    """Eventos del run en orden (``seq``): se persisten antes de emitirse."""
+
+    __tablename__ = "agent_run_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer, ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    seq = Column(Integer, nullable=False)
+    type = Column(String(40), nullable=False)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("run_id", "seq", name="uq_agent_run_event_seq"),)
+
+
+class AgentApproval(Base):
+    """Acción del agente pendiente de confirmación humana."""
+
+    __tablename__ = "agent_approvals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(
+        Integer, ForeignKey("chat_threads.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True)
+    call_id = Column(String(120), nullable=False)
+    tool = Column(String(80), nullable=False)
+    args_json = Column(Text, nullable=False)
+    preview_json = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="pending")  # pending | approved | denied
+    decided_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AgentAudit(Base):
+    """Registro de cada decisión sobre una herramienta de escritura.
+
+    Se escribe **antes** de devolver la decisión al agente."""
+
+    __tablename__ = "agent_audit"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("agent_runs.id", ondelete="SET NULL"), nullable=True)
+    tool = Column(String(80), nullable=False)
+    args_json = Column(Text, nullable=False)
+    decision = Column(String(20), nullable=False)  # allow | ask | deny | approved | denied | executed
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Bot(Base):
+    """Automatización programada: un prompt que el asistente ejecuta con cron."""
+
+    __tablename__ = "bots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(120), nullable=False)
+    template = Column(String(40), nullable=True)
+    prompt = Column(Text, nullable=False)
+    cron = Column(String(120), nullable=False)
+    timezone = Column(String(60), nullable=False, default="Europe/Madrid")
+    enabled = Column(Boolean, nullable=False, default=True)
+    provider = Column(String(40), nullable=True)
+    model = Column(String(120), nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_status = Column(String(20), nullable=True)
+    last_thread_id = Column(Integer, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String(40), nullable=False)  # bot_completed | bot_failed | needs_approval
+    title = Column(String(200), nullable=False)
+    body = Column(Text, nullable=True)
+    thread_id = Column(Integer, ForeignKey("chat_threads.id", ondelete="SET NULL"), nullable=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="SET NULL"), nullable=True)
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+# ── AUTENTICACIÓN (F0) ───────────────────────────────────────────────────────
+
+
+class User(CentralBase):
+    """Usuario de la aplicación (single-user por ahora, rol admin)."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    name = Column(String(120), nullable=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(20), nullable=False, default="admin")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+    disabled = Column(Boolean, nullable=False, default=False)
+
+    # Enrutado al SQLite del usuario (``TENANT_MODE=per_user``).
+    tenant_id = Column(String(32), nullable=True, unique=True)
+    # Material de claves (zero-knowledge). La DEK cifra el SQLite del usuario y
+    # solo se guarda envuelta: con la KEK derivada de la contraseña y con la
+    # clave de recuperación. Ver docs/SECURITY_MODEL.md.
+    kdf_salt = Column(String(64), nullable=True)
+    kdf_params = Column(String(255), nullable=True)
+    dek_wrapped_pw = Column(Text, nullable=True)
+    dek_wrapped_recovery = Column(Text, nullable=True)
+    recovery_salt = Column(String(64), nullable=True)
+    keys_created_at = Column(DateTime, nullable=True)
+    # Opt-in de automatizaciones: hasta cuándo se renuevan concesiones de
+    # clave al worker (solo en RAM del worker).
+    automation_until = Column(DateTime, nullable=True)
+    # Alta por invitación: el admin nunca elige ni conoce la contraseña (si la
+    # conociera podría derivar la KEK). Solo se guarda el hash del token.
+    invite_token_hash = Column(String(64), nullable=True, unique=True)
+    invite_expires_at = Column(DateTime, nullable=True)
+
+    sessions = relationship(
+        "Session", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - evita exponer el hash
+        return f"<User {self.email!r}>"
+
+
+class Session(CentralBase):
+    """Sesión opaca revocable. Solo se guarda el SHA-256 del token."""
+
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=True)
+    ip = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    # DEK envuelta con una clave derivada del token en claro de la cookie.
+    # Como solo se guarda el hash del token, en reposo no es descifrable.
+    dek_wrapped = Column(Text, nullable=True)
+
+    user = relationship("User", back_populates="sessions")
+
+    __table_args__ = (
+        Index("ix_sessions_user_revoked", "user_id", "revoked_at"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+
+class LoginAttempt(CentralBase):
+    """Auditoría de intentos de login para rate limit y diagnóstico."""
+
+    __tablename__ = "login_attempts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), nullable=True)
+    ip = Column(String(45), nullable=True)
+    ok = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_login_attempts_email_created", "email", "created_at"),
+        Index("ix_login_attempts_ip_created", "ip", "created_at"),
+    )
+
+
+
+
+class CentralJob(CentralBase):
+    """Cola de trabajos en la BD central. No contiene datos financieros:
+    solo referencia al tenant y al id de la fila en su SQLite."""
+
+    __tablename__ = "central_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind = Column(String(40), nullable=False)  # import | bot_run
+    ref_id = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, default="queued")
+    run_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    attempts = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_central_jobs_status_run_at", "status", "run_at"),)
+
+
+class WorkerKey(CentralBase):
+    """Clave pública X25519 efímera de un proceso worker.
+
+    La privada solo vive en la RAM del worker; al reiniciar se genera otra y
+    las concesiones selladas con la anterior quedan inservibles."""
+
+    __tablename__ = "worker_keys"
+
+    id = Column(String(32), primary_key=True)
+    public_key = Column(String(64), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class KeyLease(CentralBase):
+    """DEK de un usuario sellada para un worker concreto, con caducidad."""
+
+    __tablename__ = "key_leases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    worker_key_id = Column(
+        String(32), ForeignKey("worker_keys.id", ondelete="CASCADE"), nullable=False
+    )
+    purpose = Column(String(20), nullable=False)  # import | automation
+    sealed_dek = Column(Text, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "worker_key_id", "purpose", name="uq_key_lease"),
     )

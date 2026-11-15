@@ -85,6 +85,25 @@ class Settings(BaseSettings):
         default="sqlite:///./financial.db", validation_alias="DATABASE_URL"
     )
 
+    # Multi-tenant. ``single``: una única BD (``DATABASE_URL``) con datos y
+    # auth, comportamiento histórico. ``per_user``: BD central
+    # (``CENTRAL_DATABASE_URL``) + un SQLite por usuario en ``TENANT_DIR``.
+    tenant_mode: str = Field(default="single", validation_alias="TENANT_MODE")
+    central_database_url: str | None = Field(
+        default=None, validation_alias="CENTRAL_DATABASE_URL"
+    )
+    tenant_dir: Path = Field(default=Path("data/tenants"), validation_alias="TENANT_DIR")
+    # Cifrado SQLCipher de los SQLite por usuario (solo ``per_user``).
+    tenant_encryption: bool = Field(default=True, validation_alias="TENANT_ENCRYPTION")
+    # Motores de tenant abiertos a la vez y segundos de inactividad antes de
+    # cerrarlos (la DEK desaparece de memoria con el motor).
+    tenant_cache_size: int = Field(default=32, ge=1, validation_alias="TENANT_CACHE_SIZE")
+    tenant_idle_seconds: int = Field(default=900, ge=10, validation_alias="TENANT_IDLE_SECONDS")
+    # Caducidad máxima de la concesión de clave para automatizaciones.
+    automation_lease_days: int = Field(
+        default=30, ge=1, le=365, validation_alias="AUTOMATION_LEASE_DAYS"
+    )
+
     # Sesiones / cookies
     session_secret: SecretStr = Field(
         default=SecretStr(_DEV_SESSION_SECRET), validation_alias="SESSION_SECRET"
@@ -122,10 +141,30 @@ class Settings(BaseSettings):
     def _validate_database_url(cls, value: Any) -> str:
         return _normalise_database_url(str(value) if value is not None else "")
 
+    @field_validator("central_database_url", mode="before")
+    @classmethod
+    def _validate_central_url(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        return _normalise_database_url(str(value))
+
+    @field_validator("tenant_mode", mode="before")
+    @classmethod
+    def _validate_tenant_mode(cls, value: Any) -> str:
+        raw = str(value or "single").strip().lower().replace("-", "_")
+        if raw not in {"single", "per_user"}:
+            raise ValueError("TENANT_MODE debe ser 'single' o 'per_user'")
+        return raw
+
     @field_validator("data_dir", mode="before")
     @classmethod
     def _validate_data_dir(cls, value: Any) -> Path:
         return Path(str(value)) if value not in (None, "") else Path("data/files")
+
+    @field_validator("tenant_dir", mode="before")
+    @classmethod
+    def _validate_tenant_dir(cls, value: Any) -> Path:
+        return Path(str(value)) if value not in (None, "") else Path("data/tenants")
 
     @field_validator("admin_email", mode="before")
     @classmethod
@@ -192,6 +231,15 @@ class Settings(BaseSettings):
         return self.database_url
 
     @property
+    def per_user(self) -> bool:
+        return self.tenant_mode == "per_user"
+
+    @property
+    def central_url(self) -> str:
+        """BD central; en modo ``single`` coincide con ``DATABASE_URL``."""
+        return self.central_database_url or self.database_url
+
+    @property
     def session_cookie_name(self) -> str:
         # El prefijo __Host- exige Secure, Path=/ y ausencia de Domain.
         return "__Host-ft_session" if self.cookie_secure_effective else "ft_session"
@@ -229,6 +277,8 @@ class Settings(BaseSettings):
         return {
             "env": self.env,
             "database_url": _redact_database_url(self.database_url),
+            "tenant_mode": self.tenant_mode,
+            "central_database_url": _redact_database_url(self.central_url),
             "data_dir": str(self.data_dir),
             "session_ttl_days": self.session_ttl_days,
             "cookie_secure": self.cookie_secure_effective,

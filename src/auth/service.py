@@ -97,7 +97,8 @@ def set_user_password(session: OrmSession, user: User, password_hash: str) -> No
 def authenticate(session: OrmSession, email: str | None, password: str) -> User | None:
     """Autentica sin revelar si el email existe o está deshabilitado."""
     user = get_user_by_email(session, email)
-    if user is None or user.disabled:
+    # ``!…`` = invitación pendiente (sin contraseña todavía).
+    if user is None or user.disabled or (user.password_hash or "").startswith("!"):
         # Mismo coste que una verificación real.
         dummy_verify(password)
         return None

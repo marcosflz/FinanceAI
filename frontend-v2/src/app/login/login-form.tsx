@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -16,6 +17,7 @@ import { formatMoney, safeNextPath } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Label } from "@/components/ui/form";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { RecoveryKeyNotice } from "@/components/auth/recovery-key-notice";
 
 export function LoginForm() {
   const router = useRouter();
@@ -28,6 +30,12 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
+
+  function goNext() {
+    router.replace(next);
+    router.refresh();
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,14 +44,22 @@ export function LoginForm() {
     setPending(true);
 
     try {
-      await authApi.login({ email: email.trim(), password, remember });
-      router.replace(next);
-      router.refresh();
+      const response = await authApi.login({ email: email.trim(), password, remember });
+      if (response.recovery_key) {
+        // Primer acceso con cifrado: hay que mostrar la clave antes de seguir.
+        setPassword("");
+        setRecoveryKey(response.recovery_key);
+        setPending(false);
+        return;
+      }
+      goNext();
     } catch (loginError) {
       if (loginError instanceof ApiError && loginError.status === 429) {
         setError("Demasiados intentos. Espera un minuto antes de volver a probar.");
       } else if (loginError instanceof ApiError && loginError.status === 0) {
         setError("No se pudo conectar con el servidor. Revisa que el backend esté activo.");
+      } else if (loginError instanceof ApiError && loginError.status === 409) {
+        setError("No se pudo desbloquear tu base de datos. Usa tu clave de recuperación.");
       } else {
         setError("Email o contraseña incorrectos.");
       }
@@ -119,7 +135,7 @@ export function LoginForm() {
         <div className="flex items-center justify-between gap-4 text-[10px] opacity-60">
           <span className="inline-flex items-center gap-1.5">
             <ShieldCheck className="size-3" aria-hidden />
-            Sesión HttpOnly · CSRF · Argon2id
+            Datos cifrados con tu contraseña · Argon2id
           </span>
           <span className="num">v3 · F5</span>
         </div>
@@ -157,6 +173,13 @@ export function LoginForm() {
               </p>
             </div>
 
+            {recoveryKey ? (
+              <RecoveryKeyNotice
+                recoveryKey={recoveryKey}
+                onContinue={goNext}
+                continueLabel="Entrar en el panel"
+              />
+            ) : (
             <form onSubmit={onSubmit} className="space-y-4" noValidate>
               <Field label="Email" htmlFor="login-email">
                 <Input
@@ -243,7 +266,14 @@ export function LoginForm() {
                   </>
                 )}
               </Button>
+
+              <p className="text-center text-[12px] text-muted-foreground">
+                <Link href="/recover" className="underline underline-offset-2 hover:text-foreground">
+                  ¿Olvidaste la contraseña? Usa tu clave de recuperación
+                </Link>
+              </p>
             </form>
+            )}
 
             {DEMO_MODE ? (
               <div className="mt-6 rounded-xl border border-dashed border-border bg-card p-3.5">

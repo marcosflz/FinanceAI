@@ -15,11 +15,12 @@
 # =============================================================================
 
 # ── Stage 1: Build Next.js frontend ──────────────────────────────────────────
-FROM node:20-slim AS frontend-build
+FROM node:24-slim AS frontend-build
+RUN corepack enable
 
 WORKDIR /build
-COPY frontend-v2/package*.json ./
-RUN npm ci
+COPY frontend-v2/package.json frontend-v2/pnpm-lock.yaml frontend-v2/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY frontend-v2/ ./
 
 # BACKEND_URL is baked into the Next.js rewrite at build time.
@@ -27,7 +28,7 @@ ARG BACKEND_URL=http://backend:8001
 ENV BACKEND_URL=$BACKEND_URL
 ENV NEXT_PUBLIC_API_URL=""
 
-RUN npm run build
+RUN pnpm run build
 
 
 # ── Stage 2: Backend runtime ──────────────────────────────────────────────────
@@ -35,15 +36,31 @@ FROM python:3.12-slim AS backend
 
 WORKDIR /app
 
+# CLI de Claude Code para la suscripción personal de cada usuario (cada
+# ejecución recibe el token de su titular y un CLAUDE_CONFIG_DIR propio).
+# INSTALL_CLAUDE_CODE=0 lo omite. Versión fija y sin autoactualizar.
+ARG INSTALL_CLAUDE_CODE=1
+ARG CLAUDE_CODE_VERSION=2.1.319
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PATH="/root/.local/bin:$PATH" \
+    DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         tesseract-ocr-spa \
+        ca-certificates \
+        curl \
     && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "$INSTALL_CLAUDE_CODE" = "1" ]; then \
+        curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CODE_VERSION" \
+        && claude --version; \
+    fi
 
 RUN pip install --no-cache-dir \
     "fastapi>=0.115" \
@@ -62,15 +79,21 @@ RUN pip install --no-cache-dir \
     "openpyxl>=3.1" \
     "pypdfium2>=4.30" \
     "pytesseract>=0.3.13" \
-    "Pillow>=10.0"
+    "Pillow>=10.0" \
+    "sqlcipher3-binary>=0.5" \
+    "cryptography>=44" \
+    "croniter>=6.0" \
+    "nas-adk[anthropic] @ https://github.com/marcosflz/nas-adk/releases/download/v0.5.0/nas_adk-0.5.0-py3-none-any.whl"
 
 COPY src/ ./src/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
+COPY alembic_central/ ./alembic_central/
+COPY alembic_central.ini ./alembic_central.ini
 COPY scripts/ ./scripts/
 
 RUN chmod +x /app/scripts/docker-entrypoint.sh \
-    && mkdir -p /data/files
+    && mkdir -p /data/files /data/tenants
 
 ENV ENV=production \
     DATA_DIR=/data/files
@@ -87,7 +110,7 @@ CMD ["python", "-m", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8
 
 
 # ── Stage 3: Frontend runtime ─────────────────────────────────────────────────
-FROM node:20-slim AS frontend
+FROM node:24-slim AS frontend
 
 WORKDIR /app
 

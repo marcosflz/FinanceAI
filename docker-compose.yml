@@ -1,3 +1,7 @@
+# Nombre fijo: el proyecto (y el volumen financial-tools_financial-data) no
+# depende del nombre de la carpeta del repo.
+name: financial-tools
+
 services:
   # ── FastAPI backend ──────────────────────────────────────────────────────
   backend:
@@ -10,6 +14,13 @@ services:
       # PostgreSQL externo en producción. Sin IP/credenciales hardcodeadas.
       # Ejemplo: postgresql+psycopg://usuario:contraseña@host:5432/financial
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/financial.db}
+      # Multi-tenant (ver docs/SECURITY_MODEL.md). single = BD única histórica.
+      # per_user = BD central + un SQLite cifrado (SQLCipher) por usuario.
+      TENANT_MODE: ${TENANT_MODE:-single}
+      CENTRAL_DATABASE_URL: ${CENTRAL_DATABASE_URL:-sqlite:////data/central.db}
+      TENANT_DIR: /data/tenants
+      TENANT_ENCRYPTION: ${TENANT_ENCRYPTION:-true}
+      AUTOMATION_LEASE_DAYS: ${AUTOMATION_LEASE_DAYS:-30}
       # Producción: ENV=production (cookie __Host- + Secure).
       # Desarrollo local por HTTP: ENV=dev y COOKIE_SECURE=false.
       ENV: ${ENV:-production}
@@ -43,6 +54,9 @@ services:
       IMPORT_QUEUE_MODE: ${IMPORT_QUEUE_MODE:-worker}
     volumes:
       - financial-data:/data
+    # Los extractos se descifran a /tmp solo mientras se procesan: en RAM.
+    tmpfs:
+      - /tmp
     expose:
       - "8001"
     restart: unless-stopped
@@ -63,6 +77,13 @@ services:
     command: ["python", "-m", "src.import_worker"]
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/financial.db}
+      # Multi-tenant (ver docs/SECURITY_MODEL.md). single = BD única histórica.
+      # per_user = BD central + un SQLite cifrado (SQLCipher) por usuario.
+      TENANT_MODE: ${TENANT_MODE:-single}
+      CENTRAL_DATABASE_URL: ${CENTRAL_DATABASE_URL:-sqlite:////data/central.db}
+      TENANT_DIR: /data/tenants
+      TENANT_ENCRYPTION: ${TENANT_ENCRYPTION:-true}
+      AUTOMATION_LEASE_DAYS: ${AUTOMATION_LEASE_DAYS:-30}
       ENV: ${ENV:-production}
       DATA_DIR: /data/files
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET debe estar definido}
@@ -94,6 +115,8 @@ services:
       OCR_DPI: ${OCR_DPI:-250}
     volumes:
       - financial-data:/data
+    tmpfs:
+      - /tmp
     depends_on:
       backend:
         condition: service_healthy

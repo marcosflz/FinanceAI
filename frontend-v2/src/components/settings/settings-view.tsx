@@ -7,6 +7,8 @@ import {
   Database,
   FlaskConical,
   Info,
+  KeyRound,
+  Sparkles,
   Landmark,
   Settings2,
   ShieldCheck,
@@ -22,6 +24,8 @@ import { AccountsSettingsSection } from "@/components/settings/accounts-section"
 import { ModelsSection } from "@/components/settings/models-section";
 import { PrivacySection } from "@/components/settings/privacy-section";
 import { DataSection } from "@/components/settings/data-section";
+import { SecuritySection } from "@/components/settings/security-section";
+import { AssistantSection } from "@/components/settings/assistant-section";
 import { cn } from "@/lib/utils";
 
 const sections: Array<{
@@ -35,6 +39,8 @@ const sections: Array<{
   { value: "reglas", label: "Reglas", description: "Clasificación determinista", icon: FlaskConical },
   { value: "cuentas", label: "Cuentas", description: "IBAN y patrones", icon: Landmark },
   { value: "modelos", label: "Modelos", description: "Jev y OpenCode Go", icon: BrainCircuit },
+  { value: "asistente", label: "Asistente", description: "Proveedores y claves de IA", icon: Sparkles },
+  { value: "seguridad", label: "Seguridad", description: "Cifrado, recuperación y usuarios", icon: KeyRound },
   { value: "privacidad", label: "Privacidad", description: "Redacción y sesiones", icon: ShieldCheck },
   { value: "datos", label: "Datos", description: "Exportar y backup", icon: Database },
 ];
@@ -45,6 +51,8 @@ const sectionComponents: Record<string, React.ComponentType> = {
   reglas: RulesSection,
   cuentas: AccountsSettingsSection,
   modelos: ModelsSection,
+  asistente: AssistantSection,
+  seguridad: SecuritySection,
   privacidad: PrivacySection,
   datos: DataSection,
 };

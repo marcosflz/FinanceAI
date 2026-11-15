@@ -6,6 +6,7 @@ import { Search, UploadCloud } from "lucide-react";
 import { sectionLabel } from "@/components/shell/nav";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { UserMenu } from "@/components/shell/user-menu";
+import { NotificationsBell } from "@/components/shell/notifications-bell";
 
 function openCommandPalette() {
   window.dispatchEvent(new Event("ft:command"));
@@ -65,6 +66,7 @@ export function Topbar() {
             <UploadCloud className="size-4" aria-hidden />
           </Link>
 
+          <NotificationsBell />
           <ThemeToggle />
           <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
           <UserMenu />
