@@ -14,6 +14,7 @@ programa la siguiente ejecución. Sin concesión, el trabajo queda
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -63,6 +64,18 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "gráfico de línea del neto mensual."
         ),
     },
+}
+
+# Al crearse, el asesor instala y asigna su skill (ver ``src.agent.advisor``).
+TEMPLATES["advisor_daily"] = {
+    "name": "Asesor de cartera diario",
+    "cron": "0 8 * * 1-5",
+    "prompt": (
+        "Prepara mi informe diario de asesoramiento de cartera siguiendo la skill "
+        "asesor-cartera: valora la cartera a mercado, revisa noticias y tendencias de cada "
+        "posición, ten en cuenta mi perfil en memoria y tus recomendaciones anteriores, y "
+        "presenta mantener/comprar/vender a corto, medio y largo plazo con show_recommendations."
+    ),
 }
 
 
@@ -138,6 +151,7 @@ def bot_payload(bot: Bot) -> dict[str, Any]:
         "cron": bot.cron,
         "timezone": bot.timezone,
         "enabled": bool(bot.enabled),
+        "skill_ids": json.loads(bot.skill_ids_json) if bot.skill_ids_json else [],
         "provider": bot.provider,
         "model": bot.model,
         "next_run_at": bot.next_run_at,

@@ -4,8 +4,8 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Loader2, Play, Plus, Trash2 } from "lucide-react";
-import { botsApi } from "@/lib/agent-api";
-import type { Bot as BotType, BotTemplate } from "@/lib/agent-types";
+import { botsApi, skillsApi } from "@/lib/agent-api";
+import type { Bot as BotType, BotTemplate, Skill } from "@/lib/agent-types";
 import { ApiError } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { formatDateTime } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/ui/feedback";
 import { Field, Input, Switch, Textarea } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
+import { SkillsPicker } from "@/components/assistant/skills-picker";
 
 const STATUS: Record<string, { label: string; variant: "positive" | "warning" | "negative" }> = {
   completed: { label: "Correcto", variant: "positive" },
@@ -24,18 +25,37 @@ const STATUS: Record<string, { label: string; variant: "positive" | "warning" | 
   error: { label: "Error", variant: "negative" },
 };
 
-function BotForm({ templates, onDone }: { templates: BotTemplate[]; onDone: () => void }) {
+function namesToIds(skills: Skill[], names: string[]): number[] {
+  return skills.filter((skill) => names.includes(skill.name)).map((skill) => skill.id);
+}
+
+function idsToNames(skills: Skill[], ids: number[]): string[] {
+  return skills.filter((skill) => ids.includes(skill.id)).map((skill) => skill.name);
+}
+
+function BotForm({
+  templates,
+  skills,
+  onDone,
+}: {
+  templates: BotTemplate[];
+  skills: Skill[];
+  onDone: () => void;
+}) {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [cron, setCron] = useState("0 9 * * *");
   const [template, setTemplate] = useState<string | null>(null);
+  const [skillNames, setSkillNames] = useState<string[]>([]);
   const create = useMutation({
-    mutationFn: () => botsApi.create({ name, prompt, cron, template }),
+    mutationFn: () =>
+      botsApi.create({ name, prompt, cron, template, skill_ids: namesToIds(skills, skillNames) }),
     onSuccess: () => {
       setName("");
       setPrompt("");
       setTemplate(null);
+      setSkillNames([]);
       onDone();
       toast({ title: "Automatización creada", variant: "success" });
     },
@@ -102,7 +122,21 @@ function BotForm({ templates, onDone }: { templates: BotTemplate[]; onDone: () =
           <Field label="Instrucción" htmlFor="bot-prompt">
             <Textarea id="bot-prompt" rows={3} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
           </Field>
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <SkillsPicker
+                skills={skills}
+                selected={skillNames}
+                onChange={setSkillNames}
+                includeDisabled
+                label="Skills del bot"
+              />
+              {skillNames.map((skill) => (
+                <Badge key={skill} variant="accent" className="font-mono">
+                  {skill}
+                </Badge>
+              ))}
+            </div>
             <Button
               type="submit"
               size="sm"
@@ -119,7 +153,7 @@ function BotForm({ templates, onDone }: { templates: BotTemplate[]; onDone: () =
   );
 }
 
-function BotRow({ bot, onChange }: { bot: BotType; onChange: () => void }) {
+function BotRow({ bot, skills, onChange }: { bot: BotType; skills: Skill[]; onChange: () => void }) {
   const { toast } = useToast();
   const confirm = useConfirm();
   const toggle = useMutation({
@@ -138,6 +172,11 @@ function BotRow({ bot, onChange }: { bot: BotType; onChange: () => void }) {
     },
   });
   const remove = useMutation({ mutationFn: () => botsApi.remove(bot.id), onSuccess: onChange });
+  const setSkills = useMutation({
+    mutationFn: (names: string[]) => botsApi.update(bot.id, { skill_ids: namesToIds(skills, names) }),
+    onSuccess: onChange,
+  });
+  const botSkills = idsToNames(skills, bot.skill_ids ?? []);
   const status = bot.last_status ? STATUS[bot.last_status] : null;
 
   async function onDelete() {
@@ -159,13 +198,22 @@ function BotRow({ bot, onChange }: { bot: BotType; onChange: () => void }) {
           {status ? <Badge variant={status.variant}>{status.label}</Badge> : null}
         </p>
         <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{bot.prompt}</p>
+        {botSkills.length ? (
+          <p className="mt-1 flex flex-wrap gap-1">
+            {botSkills.map((skill) => (
+              <Badge key={skill} variant="accent" className="font-mono">
+                {skill}
+              </Badge>
+            ))}
+          </p>
+        ) : null}
         <p className="num mt-1 text-[10px] text-muted-foreground">
           {bot.cron} · {bot.enabled && bot.next_run_at ? `próxima ${formatDateTime(`${bot.next_run_at}Z`)}` : "pausada"}
           {bot.last_run_at ? ` · última ${formatDateTime(`${bot.last_run_at}Z`)}` : ""}
           {bot.last_thread_id ? (
             <>
               {" · "}
-              <Link href={`/assistant?thread=${bot.last_thread_id}`} className="underline underline-offset-2">
+              <Link href={`/ai/assistant?thread=${bot.last_thread_id}`} className="underline underline-offset-2">
                 ver resultado
               </Link>
             </>
@@ -173,6 +221,13 @@ function BotRow({ bot, onChange }: { bot: BotType; onChange: () => void }) {
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        <SkillsPicker
+          skills={skills}
+          selected={botSkills}
+          onChange={(names) => setSkills.mutate(names)}
+          disabled={setSkills.isPending}
+          includeDisabled
+        />
         <Switch
           checked={bot.enabled}
           onChange={(enabled) => toggle.mutate(enabled)}
@@ -196,6 +251,8 @@ export function AutomationsView() {
   const me = useMe();
   const templates = useQuery({ queryKey: ["agent", "bot-templates"], queryFn: () => botsApi.templates() });
   const bots = useQuery({ queryKey: ["agent", "bots"], queryFn: () => botsApi.list() });
+  const skills = useQuery({ queryKey: ["agent", "skills"], queryFn: () => skillsApi.list() });
+  const skillItems = skills.data?.items ?? [];
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["agent", "bots"] });
   const encrypted = Boolean(me.data?.tenancy?.encryption);
   const automationActive = Boolean(
@@ -219,7 +276,7 @@ export function AutomationsView() {
           . Las ejecuciones perdidas se recuperan al volver a entrar.
         </div>
       ) : null}
-      <BotForm templates={templates.data?.items ?? []} onDone={refresh} />
+      <BotForm templates={templates.data?.items ?? []} skills={skillItems} onDone={refresh} />
       <Card>
         <CardHeader className="py-3">
           <div>
@@ -231,7 +288,7 @@ export function AutomationsView() {
           {bots.data?.items.length ? (
             <div className="divide-y divide-border border-t border-border">
               {bots.data.items.map((bot) => (
-                <BotRow key={bot.id} bot={bot} onChange={refresh} />
+                <BotRow key={bot.id} bot={bot} skills={skillItems} onChange={refresh} />
               ))}
             </div>
           ) : (

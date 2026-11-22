@@ -9,7 +9,7 @@ import {
   Sparkles,
   UploadCloud,
 } from "lucide-react";
-import { navItems } from "@/components/shell/nav";
+import { aiSections, navItems } from "@/components/shell/nav";
 import { cn } from "@/lib/utils";
 
 interface CommandItem {
@@ -48,6 +48,14 @@ function buildItems(): CommandItem[] {
       description: item.description,
       keywords: item.keywords,
       group: "Ir a",
+      icon: item.icon,
+    })),
+    ...aiSections.map((item) => ({
+      href: item.href,
+      label: item.label,
+      description: item.description,
+      keywords: item.keywords,
+      group: "IA",
       icon: item.icon,
     })),
     ...actionItems,

@@ -13,6 +13,14 @@ const TOOL_LABELS: Record<string, string> = {
   update_movement_fields: "Editar movimiento",
   create_rule: "Crear regla de clasificación",
   create_category: "Crear categoría",
+  create_account: "Crear cuenta",
+  update_account: "Editar cuenta",
+  resolve_duplicate: "Resolver posible duplicado",
+  link_transfer: "Enlazar transferencia interna",
+  update_asset: "Editar activo",
+  create_automation: "Crear automatización",
+  update_automation: "Editar automatización",
+  set_skill_enabled: "Activar o desactivar skill",
 };
 
 const ARG_LABELS: Record<string, string> = {
@@ -28,6 +36,24 @@ const ARG_LABELS: Record<string, string> = {
   auto_approve: "Auto-aprobar",
   name: "Nombre",
   parent: "Dentro de",
+  kind: "Tipo",
+  iban: "IBAN",
+  currency: "Moneda",
+  alias_patterns: "Patrones de alias",
+  own: "Propia",
+  account_id: "Cuenta",
+  active: "Activa",
+  candidate_id: "Candidato",
+  same: "Es el mismo",
+  outbound_id: "Salida",
+  inbound_id: "Entrada",
+  asset_id: "Activo",
+  yf_ticker: "Ticker de mercado",
+  prompt: "Instrucciones",
+  cron: "Programación",
+  skills: "Skills",
+  bot_id: "Automatización",
+  enabled: "Activa",
 };
 
 /**
@@ -72,7 +98,7 @@ export function ApprovalCard({
   }
 
   return (
-    <div className="rounded-xl border border-warning/30 bg-warning-soft/50 p-3">
+    <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[12px] font-medium text-foreground">
           <ShieldAlert className="size-3.5 text-warning" aria-hidden />

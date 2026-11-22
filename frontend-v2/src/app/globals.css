@@ -36,10 +36,19 @@
   --chart-grid: #ececf0;
   --overlay: rgb(24 24 27 / 0.42);
 
+  /* Superficies del chat (estilo Nexus) */
+  --surface-2: #f1f1f3;
+  --surface-3: #e7e7eb;
+  --border-strong: #d4d4da;
+  --elev-1: 0 1px 2px rgb(24 24 27 / 0.04), 0 1px 3px rgb(24 24 27 / 0.05);
+  --elev-2: 0 2px 6px rgb(24 24 27 / 0.06), 0 8px 24px rgb(24 24 27 / 0.08);
+
   --font-ui: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-code: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
     Consolas, monospace;
+  --font-answer: "Source Serif 4", "Source Serif Pro", ui-serif, Georgia, Cambria,
+    "Times New Roman", serif;
 }
 
 .dark {
@@ -75,6 +84,12 @@
   --sidebar: #0e0e11;
   --chart-grid: #26262c;
   --overlay: rgb(0 0 0 / 0.66);
+
+  --surface-2: #1b1b20;
+  --surface-3: #24242a;
+  --border-strong: #3a3a42;
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --elev-2: 0 2px 8px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.35);
 }
 
 @theme inline {
@@ -104,6 +119,11 @@
   --color-info-soft: var(--info-soft);
   --color-sidebar: var(--sidebar);
   --color-chart-grid: var(--chart-grid);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border-strong: var(--border-strong);
+  --shadow-1: var(--elev-1);
+  --shadow-2: var(--elev-2);
 
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
@@ -236,6 +256,59 @@
   }
 }
 
+/* Prosa del asistente (portada de Nexus): serif de lectura, 16-17px, interlineado amplio. */
+.aui-md {
+  font-family: var(--font-answer);
+  line-height: 1.7;
+  font-size: 1rem;
+  color: var(--foreground);
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+@media (min-width: 640px) {
+  .aui-md { font-size: 1.0625rem; }
+}
+.aui-md > * + * { margin-top: 0.9rem; }
+.aui-md h1, .aui-md h2, .aui-md h3 { font-weight: 600; margin-top: 1.6rem; letter-spacing: -0.005em; line-height: 1.35; }
+.aui-md h1 { font-size: 1.45rem; }
+.aui-md h2 { font-size: 1.25rem; }
+.aui-md h3 { font-size: 1.1rem; }
+.aui-md > :first-child { margin-top: 0; }
+.aui-md strong { font-weight: 600; }
+.aui-md a { color: var(--accent); text-decoration: none; }
+.aui-md a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.aui-md ul { list-style: disc; padding-left: 1.4rem; }
+.aui-md ol { list-style: decimal; padding-left: 1.4rem; }
+.aui-md li + li { margin-top: 0.35rem; }
+.aui-md li::marker { color: var(--muted-foreground); }
+.aui-md :not(pre) > code {
+  font-family: var(--font-code);
+  background: var(--surface-2);
+  padding: 0.12rem 0.35rem;
+  border-radius: 0.375rem;
+  font-size: 0.85em;
+}
+.aui-md pre { margin: 0; }
+.aui-md blockquote { border-left: 2px solid var(--accent); padding-left: 0.9rem; color: var(--muted-foreground); }
+.aui-md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.875rem;
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.aui-md th { font-weight: 500; color: var(--muted-foreground); }
+.aui-md th, .aui-md td { border-bottom: 1px solid var(--border); padding: 0.55rem 0.6rem; text-align: left; }
+@media (max-width: 640px) {
+  .aui-md table { display: block; overflow-x: auto; }
+}
+.aui-md.aui-md-compact { font-family: var(--font-ui); font-size: 0.875rem; line-height: 1.6; }
+
+@keyframes shimmer {
+  from { background-position: 100% center; }
+  to { background-position: -100% center; }
+}
+
 @keyframes skeleton-shimmer {
   100% {
     transform: translateX(100%);
@@ -285,4 +358,14 @@
   .skeleton::after {
     display: none;
   }
+}
+
+/* shiki con dos temas: el oscuro se activa con la clase .dark */
+.dark .code-block .shiki,
+.dark .code-block .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
+}
+.code-block .shiki {
+  background-color: transparent !important;
 }

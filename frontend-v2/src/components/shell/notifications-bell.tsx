@@ -58,7 +58,7 @@ export function NotificationsBell() {
               items.map((item) => (
                 <Link
                   key={item.id}
-                  href={item.thread_id ? `/assistant?thread=${item.thread_id}` : "/automations"}
+                  href={item.thread_id ? `/ai/assistant?thread=${item.thread_id}` : "/ai/automations"}
                   onClick={close}
                   className="block px-3 py-2 hover:bg-muted"
                 >

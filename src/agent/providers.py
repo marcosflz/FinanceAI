@@ -291,6 +291,10 @@ class EchoFinanceLlm(BaseLlm):
 
     - «resumen» → llama a ``get_overview`` y luego resume el resultado.
     - «recategoriza N a Categoría» → propone ``recategorize_movements``.
+    - «recuerda …» → guarda ``perfil.riesgo`` en la memoria.
+    - «asesor», «recomienda» o «consejo» → informe de ejemplo con ``show_recommendations``.
+    - Como creador de skills (tiene ``write_draft_file``) → escribe un SKILL.md
+      a partir del mensaje y lo valida.
     - Cualquier otra cosa → eco.
     """
 
@@ -303,9 +307,59 @@ class EchoFinanceLlm(BaseLlm):
         messages = request.messages
         last = messages[-1] if messages else {}
         usage = {"input_tokens": 10, "output_tokens": 5}
+        tool_names = {t.get("function", t).get("name") for t in request.tools or []}
+        if "write_draft_file" in tool_names:
+            return self._creator_step(messages, usage)
         if last.get("role") == "tool":
             return LlmResponse(content=f"Hecho. Resultado: {last.get('content', '')[:400]}", usage=usage)
         text = str(last.get("content") or "").lower()
+        if "recuerda" in text:
+            args = {"key": "perfil.riesgo", "value": text.split("recuerda", 1)[1].strip(" :") or "moderado"}
+            return LlmResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="fake-remember",
+                        function={"name": "remember", "arguments": json.dumps(args, ensure_ascii=False)},
+                    )
+                ],
+                finish_reason="tool_calls",
+                usage=usage,
+            )
+        if "asesor" in text or "recomienda" in text or "consejo" in text:
+            args = {
+                "summary": "Informe de ejemplo (LLM de desarrollo).",
+                "items": [
+                    {
+                        "symbol": "IWDA.AS",
+                        "name": "iShares Core MSCI World",
+                        "horizon": horizon,
+                        "action": action,
+                        "confidence": "media",
+                        "rationale": rationale,
+                        "sources": ["Ejemplo de desarrollo"],
+                        "price": 98.5,
+                        "currency": "EUR",
+                    }
+                    for horizon, action, rationale in (
+                        ("corto", "mantener", "Cotiza cerca de su media de 50 sesiones."),
+                        ("medio", "mantener", "Tendencia alcista con volatilidad moderada."),
+                        ("largo", "comprar", "Base diversificada coherente con un perfil a largo plazo."),
+                    )
+                ],
+            }
+            return LlmResponse(
+                tool_calls=[
+                    ToolCall(
+                        id="fake-advice",
+                        function={
+                            "name": "show_recommendations",
+                            "arguments": json.dumps(args, ensure_ascii=False),
+                        },
+                    )
+                ],
+                finish_reason="tool_calls",
+                usage=usage,
+            )
         if "resumen" in text:
             return LlmResponse(
                 tool_calls=[ToolCall(id="fake-overview", function={"name": "get_overview", "arguments": "{}"})],
@@ -331,3 +385,44 @@ class EchoFinanceLlm(BaseLlm):
                 usage=usage,
             )
         return LlmResponse(content=f"Eco: {last.get('content', '')}", usage=usage)
+
+    @staticmethod
+    def _creator_step(messages: list[dict[str, Any]], usage: dict[str, int]) -> LlmResponse:
+        last = messages[-1] if messages else {}
+        if last.get("role") == "tool":
+            called = {
+                call["function"]["name"]
+                for m in messages
+                if m.get("role") == "assistant"
+                for call in m.get("tool_calls") or []
+            }
+            if "validate_draft" not in called:
+                return LlmResponse(
+                    tool_calls=[ToolCall(id="fake-validate", function={"name": "validate_draft", "arguments": "{}"})],
+                    finish_reason="tool_calls",
+                    usage=usage,
+                )
+            return LlmResponse(
+                content=(
+                    "He preparado el borrador de la skill:\n\n"
+                    "| Archivo | Contenido |\n|---|---|\n| `SKILL.md` | Procedimiento y verificación |\n\n"
+                    "Pruébala con un mes concreto y dime qué ajustar."
+                ),
+                usage=usage,
+            )
+        request_text = str(last.get("content") or "").strip() or "tarea financiera"
+        skill_md = (
+            "---\nname: resumen-mensual\n"
+            "description: Úsala cuando el usuario pida un resumen mensual de gastos por categoría.\n---\n\n"
+            f"Objetivo: {request_text}\n\n"
+            "## Procedimiento\n\n1. Llama a `spending_by_category` con el mes pedido.\n"
+            "2. Compara con el mes anterior usando `cashflow`.\n"
+            "3. Responde con una tabla y el total en formato 1.234,56 €.\n\n"
+            "## Verificación\n\n- Las cifras salen de las herramientas, nunca inventadas.\n"
+        )
+        args = json.dumps({"path": "SKILL.md", "content": skill_md}, ensure_ascii=False)
+        return LlmResponse(
+            tool_calls=[ToolCall(id="fake-write", function={"name": "write_draft_file", "arguments": args})],
+            finish_reason="tool_calls",
+            usage=usage,
+        )

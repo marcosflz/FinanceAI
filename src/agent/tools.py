@@ -14,47 +14,16 @@ versionado de clasificaciones y memoria de comercios.
 
 from __future__ import annotations
 
-import functools
-import inspect
 from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from pydantic.fields import FieldInfo
+
+from .toolkit import ToolError, _invoke, _safe  # noqa: F401  (reexportados)
 
 MAX_ROWS = 50
-
-
-class ToolError(Exception):
-    pass
-
-
-def _invoke(fn: Callable[..., Any], **kwargs: Any) -> Any:
-    """Llama a un handler FastAPI resolviendo los ``Query(...)`` por defecto."""
-    target = inspect.unwrap(fn)
-    for name, param in inspect.signature(target).parameters.items():
-        if name in kwargs:
-            continue
-        if isinstance(param.default, FieldInfo):
-            kwargs[name] = param.default.default if param.default.default is not ... else None
-    return fn(**kwargs)
-
-
-def _safe(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Convierte errores de negocio en ``{"error": …}`` para el modelo."""
-
-    @functools.wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except HTTPException as exc:
-            return {"error": str(exc.detail)}
-        except (ToolError, ValueError) as exc:
-            return {"error": str(exc)}
-
-    return wrapper
 
 
 def _parse_date(value: str | None, field: str) -> date | None:
@@ -348,6 +317,255 @@ def create_category(name: str, parent: str | None = None) -> dict:
     return create_category_v3(CategoryCreate(nombre=name, parent_id=parent_id))
 
 
+# ── Gestión: lectura ─────────────────────────────────────────────────────────
+
+
+@_safe
+def list_duplicates(limit: int = Field(default=20, ge=1, le=MAX_ROWS)) -> dict:
+    """Pares de movimientos que podrían estar duplicados, pendientes de revisar."""
+    from ..api_v3_data import list_dedup_candidates
+
+    items = list_dedup_candidates()["items"][:limit]
+    return {
+        "items": [
+            {
+                "id": c["id"],
+                "score": c["score"],
+                "motivo": c["motivo"],
+                "a": _compact_movement(c["movement_a"]) if c["movement_a"] else None,
+                "b": _compact_movement(c["movement_b"]) if c["movement_b"] else None,
+            }
+            for c in items
+        ]
+    }
+
+
+@_safe
+def list_imports(limit: int = Field(default=15, ge=1, le=MAX_ROWS)) -> dict:
+    """Últimos extractos importados: estado, cuenta, periodo, movimientos nuevos y errores."""
+    from ..api_v3_data import list_imports_v3
+
+    keys = (
+        "id", "filename", "status", "account", "period_start", "period_end",
+        "movement_new_count", "uncategorized_count", "error", "pending_action", "created_at",
+    )
+    items = list_imports_v3()["items"][:limit]
+    return {"items": [{k: item.get(k) for k in keys} for item in items]}
+
+
+@_safe
+def list_assets() -> dict:
+    """Activos de la cartera con su ISIN y su ticker de Yahoo Finance (si está asignado)."""
+    from ..db.session import _session
+    from ..models import Asset
+
+    with _session() as s:
+        rows = s.query(Asset).filter(Asset.activo.is_(True)).order_by(Asset.symbol).all()
+        return {
+            "items": [
+                {
+                    "id": a.id,
+                    "symbol": a.symbol,
+                    "isin": a.isin,
+                    "yf_ticker": a.yf_ticker,
+                    "nombre": a.nombre,
+                    "clase": a.asset_class,
+                    "moneda": a.moneda,
+                }
+                for a in rows
+            ]
+        }
+
+
+@_safe
+def list_automations() -> dict:
+    """Automatizaciones programadas (bots): prompt, cron, estado y última ejecución."""
+    from ..db.session import _session
+    from ..models import Bot
+    from .bots import bot_payload
+
+    with _session() as s:
+        return {"items": [bot_payload(b) for b in s.query(Bot).order_by(Bot.id)]}
+
+
+@_safe
+def list_skills() -> dict:
+    """Skills de la biblioteca del usuario y si están activas en el chat."""
+    from ..db.session import _session
+    from ..models import Skill
+
+    with _session() as s:
+        rows = s.query(Skill).filter(Skill.deleted_at.is_(None)).order_by(Skill.name).all()
+        return {
+            "items": [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "description": r.description,
+                    "enabled_in_chat": bool(r.enabled_in_chat),
+                }
+                for r in rows
+            ]
+        }
+
+
+# ── Gestión: escritura (requieren aprobación) ────────────────────────────────
+
+
+@_safe
+def create_account(
+    name: str,
+    kind: Literal["efectivo_externa", "broker_central"] = "efectivo_externa",
+    iban: str | None = None,
+    currency: str = "EUR",
+    alias_patterns: list[str] | None = None,
+    own: bool = True,
+) -> dict:
+    """Crea una cuenta (propia o de un tercero) con IBAN y patrones de alias opcionales. Requiere aprobación."""
+    from ..api_v3_data import AccountCreate
+    from ..api_v3_data import create_account as handler
+
+    return handler(
+        AccountCreate(
+            nombre=name,
+            tipo=kind,
+            iban=iban,
+            moneda=currency,
+            alias_patrones=alias_patterns or [],
+            es_propia=own,
+        )
+    )
+
+
+@_safe
+def update_account(
+    account_id: int,
+    name: str | None = None,
+    iban: str | None = None,
+    alias_patterns: list[str] | None = None,
+    active: bool | None = None,
+) -> dict:
+    """Edita nombre, IBAN, patrones de alias o archiva/reactiva una cuenta. Requiere aprobación."""
+    from ..api_v3_data import AccountUpdate
+    from ..api_v3_data import update_account as handler
+
+    fields: dict[str, Any] = {}
+    if name is not None:
+        fields["nombre"] = name
+    if iban is not None:
+        fields["iban"] = iban
+    if alias_patterns is not None:
+        fields["alias_patrones"] = alias_patterns
+    if active is not None:
+        fields["activo"] = active
+    if not fields:
+        raise ToolError("No hay cambios")
+    return handler(account_id, AccountUpdate(**fields))
+
+
+@_safe
+def resolve_duplicate(candidate_id: int, same: bool) -> dict:
+    """Resuelve un posible duplicado: ``same=true`` saca el movimiento repetido de KPIs y saldos. Requiere aprobación."""
+    from ..api_v3_data import DedupResolution, resolve_dedup_candidate
+
+    return resolve_dedup_candidate(
+        candidate_id, DedupResolution(resolution="mismo" if same else "distinto")
+    )
+
+
+@_safe
+def link_transfer(outbound_id: int, inbound_id: int) -> dict:
+    """Enlaza dos movimientos como transferencia interna (salida → entrada). Requiere aprobación."""
+    from ..api_v3_data import TransferLinkRequest
+    from ..api_v3_data import link_transfer as handler
+
+    return handler(TransferLinkRequest(outbound_id=outbound_id, inbound_id=inbound_id))
+
+
+@_safe
+def update_asset(asset_id: int, yf_ticker: str | None = None, name: str | None = None) -> dict:
+    """Asigna el ticker de Yahoo Finance o el nombre de un activo (para valorar a mercado). Requiere aprobación."""
+    from ..db.session import _session
+    from ..models import Asset
+
+    if yf_ticker is None and name is None:
+        raise ToolError("No hay cambios")
+    with _session() as s:
+        asset = s.query(Asset).filter_by(id=asset_id).first()
+        if asset is None:
+            raise ToolError("Activo no encontrado")
+        if yf_ticker is not None:
+            asset.yf_ticker = yf_ticker.strip().upper()[:30] or None
+        if name is not None:
+            asset.nombre = name.strip()[:255] or asset.nombre
+        return {"id": asset.id, "symbol": asset.symbol, "yf_ticker": asset.yf_ticker, "nombre": asset.nombre}
+
+
+@_safe
+def create_automation(
+    name: str,
+    prompt: str,
+    cron: str = Field(description="Cron de 5 campos en hora local, p. ej. '0 8 * * 1-5'"),
+    skills: list[str] | None = None,
+) -> dict:
+    """Programa una automatización (bot) que ejecuta ``prompt`` según ``cron``. Requiere aprobación."""
+    from ..api_agent import BotCreate, create_bot
+
+    return create_bot(
+        BotCreate(name=name, prompt=prompt, cron=cron, skill_ids=_skill_ids(skills))
+    )
+
+
+@_safe
+def update_automation(
+    bot_id: int,
+    enabled: bool | None = None,
+    cron: str | None = None,
+    prompt: str | None = None,
+    skills: list[str] | None = None,
+) -> dict:
+    """Activa/pausa una automatización o cambia su cron, prompt o skills. Requiere aprobación."""
+    from ..api_agent import BotUpdate, update_bot
+
+    return update_bot(
+        bot_id,
+        BotUpdate(
+            enabled=enabled,
+            cron=cron,
+            prompt=prompt,
+            skill_ids=_skill_ids(skills) if skills is not None else None,
+        ),
+    )
+
+
+def _skill_ids(names: list[str] | None) -> list[int] | None:
+    if not names:
+        return None
+    from ..db.session import _session
+    from ..models import Skill
+
+    with _session() as s:
+        rows = s.query(Skill).filter(Skill.deleted_at.is_(None), Skill.name.in_(names)).all()
+        missing = set(names) - {r.name for r in rows}
+        if missing:
+            raise ToolError(f"Skills desconocidas: {', '.join(sorted(missing))}")
+        return [r.id for r in rows]
+
+
+@_safe
+def set_skill_enabled(name: str, enabled: bool) -> dict:
+    """Activa o desactiva una skill en el chat. Requiere aprobación."""
+    from ..db.session import _session
+    from ..models import Skill
+
+    with _session() as s:
+        row = s.query(Skill).filter(Skill.deleted_at.is_(None), Skill.name == name).first()
+        if row is None:
+            raise ToolError("Skill no encontrada")
+        row.enabled_in_chat = enabled
+        return {"name": row.name, "enabled_in_chat": enabled}
+
+
 def _category_ref(value: str) -> int | str:
     value = (value or "").strip()
     return int(value) if value.isdigit() else value
@@ -389,18 +607,46 @@ READ_TOOLS: tuple[Callable[..., Any], ...] = (
     list_categories,
     list_rules,
     pending_review,
+    list_duplicates,
+    list_imports,
+    list_assets,
+    list_automations,
+    list_skills,
 )
 WRITE_TOOLS: tuple[Callable[..., Any], ...] = (
     recategorize_movements,
     update_movement_fields,
     create_rule,
     create_category,
+    create_account,
+    update_account,
+    resolve_duplicate,
+    link_transfer,
+    update_asset,
+    create_automation,
+    update_automation,
+    set_skill_enabled,
 )
 UI_TOOLS: tuple[Callable[..., Any], ...] = (show_chart,)
 
-ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + UI_TOOLS
+
+def _extra_tools() -> tuple[tuple[Callable[..., Any], ...], tuple[Callable[..., Any], ...]]:
+    """Mercado, asesor y memoria viven en sus módulos (importación diferida)."""
+    from . import market_tools, memory
+
+    return market_tools.READ_TOOLS, market_tools.ADVISOR_TOOLS + memory.TOOLS
+
+
+_MARKET_READ, _AGENT_STATE = _extra_tools()
+# Lectura pura (paralelizable) frente a herramientas que guardan estado propio del
+# asistente (memoria, histórico del asesor): se permiten sin aprobación porque no
+# tocan datos financieros y el usuario las ve y borra en la app.
+READ_TOOLS = READ_TOOLS + _MARKET_READ
+STATE_TOOLS: tuple[Callable[..., Any], ...] = _AGENT_STATE
+
+ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + UI_TOOLS + STATE_TOOLS
 TOOLS_BY_NAME = {fn.__name__: fn for fn in ALL_TOOLS}
-READ_NAMES = frozenset(fn.__name__ for fn in READ_TOOLS + UI_TOOLS)
+READ_NAMES = frozenset(fn.__name__ for fn in READ_TOOLS + UI_TOOLS + STATE_TOOLS)
 WRITE_NAMES = frozenset(fn.__name__ for fn in WRITE_TOOLS)
 
 

@@ -264,6 +264,8 @@ class MessageCreate(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     provider: str | None = None
     model: str | None = None
+    # Skills forzadas desde el selector del composer (por nombre).
+    skills: list[str] | None = Field(default=None, max_length=10)
 
 
 class DecisionIn(BaseModel):
@@ -308,6 +310,8 @@ def list_threads(origin: Literal["chat", "routine", "all"] = Query(default="all"
         query = s.query(ChatThread)
         if origin != "all":
             query = query.filter(ChatThread.origin == origin)
+        else:  # las conversaciones del creador de skills viven en su borrador
+            query = query.filter(ChatThread.origin != "skill_creator")
         rows = query.order_by(ChatThread.updated_at.desc()).limit(200).all()
         return {"items": [_thread_payload(t) for t in rows]}
 
@@ -415,7 +419,13 @@ async def _stream(turn) -> StreamingResponse:
 async def post_message(thread_id: int, body: MessageCreate) -> StreamingResponse:
     await asyncio.to_thread(_prepare_turn, thread_id)
     return await _stream(
-        run_turn(thread_id, message=body.message, provider=body.provider, model_name=body.model)
+        run_turn(
+            thread_id,
+            message=body.message,
+            provider=body.provider,
+            model_name=body.model,
+            skills=body.skills,
+        )
     )
 
 
@@ -432,6 +442,14 @@ async def resume_thread(thread_id: int, body: ResumeRequest) -> StreamingRespons
         for d in body.decisions
     ]
     return await _stream(run_turn(thread_id, decisions=decisions))
+
+
+@router.post("/agent/runs/{run_id}/cancel")
+def cancel_run(run_id: int) -> dict:
+    """Detiene un turno en curso; sus eventos y el mensaje del usuario se conservan."""
+    if not hub.cancel(run_id):
+        raise HTTPException(409, "El turno ya ha terminado o no se está ejecutando aquí")
+    return {"cancelled": True}
 
 
 @router.get("/agent/runs/{run_id}/events")
@@ -458,6 +476,7 @@ class BotCreate(BaseModel):
     enabled: bool = True
     provider: str | None = None
     model: str | None = None
+    skill_ids: list[int] | None = None
 
 
 class BotUpdate(BaseModel):
@@ -468,6 +487,11 @@ class BotUpdate(BaseModel):
     enabled: bool | None = None
     provider: str | None = None
     model: str | None = None
+    skill_ids: list[int] | None = None
+
+
+def _skill_ids_json(ids: list[int] | None) -> str | None:
+    return json.dumps(sorted(set(ids))) if ids else None
 
 
 @router.get("/agent/bots/templates")
@@ -487,6 +511,10 @@ def create_bot(body: BotCreate) -> dict:
         bot_ops.validate_cron(body.cron, body.timezone)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if body.template == "advisor_daily" and not body.skill_ids:
+        from .agent.advisor import install_skill
+
+        body.skill_ids = [install_skill()]
     with _session() as s:
         bot = Bot(
             name=body.name.strip(),
@@ -497,6 +525,7 @@ def create_bot(body: BotCreate) -> dict:
             enabled=body.enabled,
             provider=body.provider,
             model=body.model,
+            skill_ids_json=_skill_ids_json(body.skill_ids),
             next_run_at=bot_ops.next_run(body.cron, body.timezone) if body.enabled else None,
             created_at=datetime.utcnow(),
         )
@@ -518,6 +547,8 @@ def update_bot(bot_id: int, body: BotUpdate) -> dict:
             value = getattr(body, field)
             if value is not None:
                 setattr(bot, field, value.strip() if isinstance(value, str) else value)
+        if body.skill_ids is not None:
+            bot.skill_ids_json = _skill_ids_json(body.skill_ids)
         if body.cron is not None:
             bot.cron = body.cron.strip()
         if body.timezone is not None:

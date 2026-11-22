@@ -12,7 +12,9 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api_account import router as account_router
+from .api_advisor import router as advisor_router
 from .api_agent import router as agent_router
+from .api_skills import router as skills_router
 from .api_v3 import health_router, protected_router as v3_protected_router
 from .api_v3 import public_router as v3_public_router
 from .api_v3_data import router as v3_data_router
@@ -48,6 +50,8 @@ app.include_router(v3_protected_router)
 app.include_router(v3_data_router)
 app.include_router(account_router)
 app.include_router(agent_router)
+app.include_router(skills_router)
+app.include_router(advisor_router)
 app.include_router(health_router)
 app.include_router(v2_router, prefix="/api/v3", dependencies=_protected)
 app.include_router(imports_router, prefix="/api/v3/imports", dependencies=_protected)

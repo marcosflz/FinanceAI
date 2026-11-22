@@ -1,6 +1,10 @@
 import { API_BASE_URL, ApiError, apiFetch, csrfHeader } from "@/lib/api";
 import type {
+  AdvisorAsset,
+  AdvisorEvaluation,
+  AdvisorStatus,
   AgentEvent,
+  AgentMemory,
   AgentNotification,
   AiCatalogProvider,
   AiProviderConfig,
@@ -9,6 +13,13 @@ import type {
   BotInput,
   BotTemplate,
   ChatThread,
+  NewsFeed,
+  NewsItem,
+  Recommendation,
+  Skill,
+  SkillDetail,
+  SkillDraftDetail,
+  SkillDraftSummary,
   ThreadDetail,
 } from "@/lib/agent-types";
 import type { ApiErrorBody } from "@/lib/types";
@@ -137,7 +148,7 @@ export const agentApi = {
   },
   send(
     threadId: number,
-    payload: { message: string; provider?: string; model?: string },
+    payload: { message: string; provider?: string; model?: string; skills?: string[] },
     onEvent: (event: AgentEvent) => void,
     signal?: AbortSignal,
   ) {
@@ -155,6 +166,9 @@ export const agentApi = {
       onEvent,
       signal,
     );
+  },
+  cancel(runId: number) {
+    return apiFetch<{ cancelled: boolean }>(`/api/v3/agent/runs/${runId}/cancel`, { method: "POST" });
   },
   follow(runId: number, after: number, onEvent: (event: AgentEvent) => void, signal?: AbortSignal) {
     return readEvents(
@@ -201,6 +215,134 @@ export const notificationsApi = {
     return apiFetch<{ updated: number }>("/api/v3/agent/notifications/read", {
       method: "POST",
       json: ids ?? null,
+    });
+  },
+};
+
+export const skillsApi = {
+  list() {
+    return apiFetch<{ items: Skill[] }>("/api/v3/agent/skills");
+  },
+  get(id: number) {
+    return apiFetch<SkillDetail>(`/api/v3/agent/skills/${id}`);
+  },
+  update(id: number, payload: { enabled_in_chat?: boolean }) {
+    return apiFetch<Skill>(`/api/v3/agent/skills/${id}`, { method: "PATCH", json: payload });
+  },
+  remove(id: number) {
+    return apiFetch<void>(`/api/v3/agent/skills/${id}`, { method: "DELETE" });
+  },
+  exportUrl(id: number) {
+    return `${API_BASE_URL}/api/v3/agent/skills/${id}/export`;
+  },
+  async importZip(file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await fetch(`${API_BASE_URL}/api/v3/agent/skills/import`, {
+      method: "POST",
+      body,
+      credentials: "include",
+      headers: { ...csrfHeader() },
+    });
+    const data = (await response.json().catch(() => ({}))) as ApiErrorBody & {
+      items?: { draft_id: number; name: string }[];
+    };
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        data.message ?? data.detail ?? `Error ${response.status}`,
+        data.code ?? `http_${response.status}`,
+      );
+    }
+    return { items: data.items ?? [] };
+  },
+  drafts() {
+    return apiFetch<{ items: SkillDraftSummary[] }>("/api/v3/agent/skill-drafts");
+  },
+  createDraft(skillId?: number) {
+    return apiFetch<{ id: number }>("/api/v3/agent/skill-drafts", {
+      method: "POST",
+      json: { skill_id: skillId ?? null },
+    });
+  },
+  draft(id: number) {
+    return apiFetch<SkillDraftDetail>(`/api/v3/agent/skill-drafts/${id}`);
+  },
+  saveDraft(id: number, revision: number, files: Record<string, string | null>) {
+    return apiFetch<{ revision: number }>(`/api/v3/agent/skill-drafts/${id}`, {
+      method: "PATCH",
+      json: { revision, files },
+    });
+  },
+  deleteDraft(id: number) {
+    return apiFetch<void>(`/api/v3/agent/skill-drafts/${id}`, { method: "DELETE" });
+  },
+  publish(id: number) {
+    return apiFetch<{ skill_id: number; version: number; name: string }>(
+      `/api/v3/agent/skill-drafts/${id}/publish`,
+      { method: "POST" },
+    );
+  },
+  send(
+    draftId: number,
+    payload: { message: string; provider?: string; model?: string },
+    onEvent: (event: AgentEvent) => void,
+    signal?: AbortSignal,
+  ) {
+    return readEvents(
+      `/api/v3/agent/skill-drafts/${draftId}/messages`,
+      jsonInit(payload),
+      onEvent,
+      signal,
+    );
+  },
+};
+
+export const memoryApi = {
+  list(q?: string) {
+    return apiFetch<{ items: AgentMemory[] }>("/api/v3/agent/memories", { query: q ? { q } : undefined });
+  },
+  create(key: string, value: string) {
+    return apiFetch<AgentMemory>("/api/v3/agent/memories", { method: "POST", json: { key, value } });
+  },
+  update(id: number, value: string) {
+    return apiFetch<AgentMemory>(`/api/v3/agent/memories/${id}`, { method: "PATCH", json: { value } });
+  },
+  remove(id: number) {
+    return apiFetch<void>(`/api/v3/agent/memories/${id}`, { method: "DELETE" });
+  },
+  clear() {
+    return apiFetch<void>("/api/v3/agent/memories", { method: "DELETE" });
+  },
+};
+
+export const advisorApi = {
+  status() {
+    return apiFetch<AdvisorStatus>("/api/v3/advisor/status");
+  },
+  setup() {
+    return apiFetch<Bot>("/api/v3/advisor/setup", { method: "POST" });
+  },
+  latest() {
+    return apiFetch<{ items: AdvisorAsset[] }>("/api/v3/advisor/latest");
+  },
+  history(symbol?: string) {
+    return apiFetch<{ items: Recommendation[] }>("/api/v3/advisor/history", {
+      query: symbol ? { symbol } : undefined,
+    });
+  },
+  evaluation() {
+    return apiFetch<AdvisorEvaluation>("/api/v3/advisor/evaluation");
+  },
+  feeds() {
+    return apiFetch<{ items: NewsFeed[]; defaults: NewsFeed[] }>("/api/v3/advisor/feeds");
+  },
+  saveFeeds(items: NewsFeed[]) {
+    return apiFetch<{ items: NewsFeed[] }>("/api/v3/advisor/feeds", { method: "PUT", json: { items } });
+  },
+  news(q?: string) {
+    return apiFetch<{ items: NewsItem[]; feeds: string[]; failed: string[] }>("/api/v3/advisor/news", {
+      query: q ? { q } : undefined,
     });
   },
 };

@@ -24,10 +24,15 @@ from nas.adk.core.interrupts import ToolDecision
 from ..db.session import _session
 from ..models import AgentApproval, AgentAudit
 from . import tools as finance_tools
+from .skills import DRAFT_TOOLS, SKILL_RUNTIME_TOOLS
 
 
 def decide(tool_name: str) -> str:
-    if tool_name in finance_tools.READ_NAMES:
+    # Las herramientas de skills solo leen paquetes autorizados; las del
+    # borrador solo existen en el agente creador y editan únicamente su borrador.
+    if tool_name in finance_tools.READ_NAMES or tool_name in SKILL_RUNTIME_TOOLS:
+        return "allow"
+    if tool_name in DRAFT_TOOLS:
         return "allow"
     if tool_name in finance_tools.WRITE_NAMES:
         return "ask"

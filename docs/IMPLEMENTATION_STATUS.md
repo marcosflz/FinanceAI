@@ -3,6 +3,84 @@
 Plan canónico copiado al repo: [`PLAN_2026-10-31.md`](./PLAN_2026-10-31.md).
 Estado global: **F0–F5 implementadas y verificadas en local; F6/F7 parciales**.
 
+## Memoria, mercado, asesor y gestión completa 2026-11-22
+
+- **Memoria** (`src/agent/memory.py`, tabla `agent_memories`): vive en la BD
+  cifrada del usuario. No usa `SQLiteMemoryService` de nas-adk, porque abre un
+  SQLite sin cifrar y su extractor descarta los datos financieros. Las claves
+  van con espacio de nombres (`perfil.`, `preferencias.`, `objetivos.`,
+  `activos.<ticker>.`, `notas.`) y se rechazan credenciales, IBAN y tarjetas.
+  - Herramientas `remember`, `forget_memory` y `search_memory`, sin aprobación.
+  - En cada turno se inyectan hasta 40 recuerdos en la instrucción.
+  - UI en Ajustes → Asistente → Memoria (ver, editar, añadir, borrar).
+- **Mercado y noticias**:
+  - `src/agent/market_tools.py`: `search_asset`, `get_quote`, `price_history`
+    (variaciones, medias 50/200, volatilidad y una muestra para gráficos),
+    `asset_fundamentals`, `asset_news`, `market_news`, `portfolio_live`
+    (cartera a precio de mercado, con el ticker resuelto por ISIN) y
+    `recommendation_history`.
+  - `src/news.py`: RSS/Atom sin dependencias, con caché de 15 minutos en RAM,
+    deduplicación y la lista de feeds por usuario en `app_config.news_feeds`.
+  - Seguridad de los feeds: solo URLs http(s) a IP públicas, validadas también
+    en cada redirección; tamaño máximo de 2 MB; se rechazan los XML con `ENTITY`.
+  - El texto externo se marca como no fiable para el modelo.
+- **Asesor**:
+  - Herramienta `show_recommendations`: guarda el informe en
+    `advisor_recommendations` (migración `v3_016_memory_advisor`) y se pinta
+    como widget en el chat.
+  - `src/agent/advisor.py`: skill incluida `asesor-cartera` (`source=builtin`),
+    plantilla de bot `advisor_daily` (laborables a las 8:00), última
+    recomendación por activo y horizonte, histórico y evaluación de aciertos
+    direccionales frente al precio actual.
+  - API en `src/api_advisor.py` (`/advisor/*` y `/agent/memories`).
+  - UI en `/advisor`: activar, analizar ahora, recomendaciones actuales,
+    aciertos, y noticias con editor de fuentes.
+  - Los bots tienen límites mayores (48 llamadas al modelo, 96k de contexto).
+- **Gestión** (escrituras con aprobación): `create_account`, `update_account`,
+  `resolve_duplicate`, `link_transfer`, `update_asset` (ticker de mercado),
+  `create_automation`, `update_automation` y `set_skill_enabled`. Lecturas
+  nuevas: `list_duplicates`, `list_imports`, `list_assets`, `list_automations`
+  y `list_skills`.
+- **Detener**: `POST /agent/runs/{id}/cancel` y el botón ■ del composer.
+  - El hub entrega la cancelación dentro del turno, que emite
+    `RUN_ERROR status=cancelled` y conserva la sesión del turno anterior.
+  - Los runs ya se persisten evento a evento en `agent_run_events`; en memoria
+    del proceso solo queda el seguimiento en vivo.
+- Tests: `src/tests/test_advisor.py`.
+- **Pendiente**:
+  - Importar extractos desde el chat (requiere adjuntar archivos).
+  - Cancelar runs que corren en otro proceso (el worker).
+  - Extracción automática de memoria.
+  - Las cotizaciones dependen de Yahoo Finance sin clave (puede limitar
+    peticiones).
+
+## Skills asistidas y chat estilo Nexus 2026-11-21
+
+- **Skills (F5a)**: biblioteca por usuario (`skills`, `skill_versions`
+  inmutables, `skill_drafts`; migración `v3_015_skills`, más `bots.skill_ids_json`).
+  Creador conversacional de nas-adk (`CREATOR_INSTRUCTION` más el contexto de
+  herramientas de FinanceAI) con un backend de borrador directo en BD
+  (`src/agent/skills.py`, sin BFF). API en `src/api_skills.py`: borradores,
+  chat del creador por SSE, PATCH con `revision`, publicar, exportar e importar
+  ZIP. El chat inyecta el catálogo con `SkillRuntime` (las skills activas en el
+  chat o las del bot); se fuerzan con el prefijo `/nombre` o el selector del
+  composer (`skills` en el mensaje); el evento `SKILL_ACTIVATED` se muestra en
+  la UI. El catálogo se fija por turno: un mensaje nuevo limpia
+  `nas.skills` de la sesión, y una reanudación lo conserva. No hay ejecutor
+  de scripts.
+- **UI**: `/skills` (biblioteca, borradores, importar), `/skills/drafts/[id]`
+  (chat con el creador y borrador en vivo: vista previa, archivos, cambios) y
+  `/skills/[id]` (versiones, activar en el chat, editar con ayuda, exportar,
+  probar en el chat). Las automatizaciones permiten asignar skills.
+- **Chat con aspecto de Nexus (solo UI)**: markdown real (react-markdown, GFM,
+  shiki), prosa `.aui-md`, cabecera de pasos con brillo animado («Finalizado ·
+  N pasos»), burbuja de usuario, composer en tarjeta con skills y modelo,
+  estado vacío centrado, lista de hilos a pantalla completa con estado del
+  hilo. El runtime SSE propio no cambia (no se usa assistant-ui).
+- `EchoFinanceLlm` (`AGENT_FAKE_LLM=1`) también simula al creador.
+- Tests: `src/tests/test_skills.py`.
+- La hoja de ruta de esta fase se completó el 2026-11-22 (ver la sección de arriba).
+
 ## Asistente de IA y multi-tenant cifrado 2026-11-15
 
 Plan: `~/.claude/plans/pasted-content-id-d87d-quiero-dise-ar-sleepy-moore.md`.
@@ -30,8 +108,7 @@ Diseño de seguridad: [`SECURITY_MODEL.md`](./SECURITY_MODEL.md).
 - **F4**: bots con cron (`src/agent/bots.py`) programados en `central_jobs`
   (`kind=bot_run`) y ejecutados por el worker; `/automations` y campana de
   avisos.
-- **Pendiente (F5)**: skills (requiere publicar `nas-adk` 0.5.0, hoy sin
-  commitear en su repo), suscripciones Claude/ChatGPT (revisar uso personal),
+- **Pendiente (F5)**: ~~skills~~ (hecho el 2026-11-21, ver arriba), suscripciones Claude/ChatGPT (revisar uso personal),
   OpenUI, registro abierto, mover el clasificador a los proveedores del
   usuario. Producción sigue en `TENANT_MODE=single` hasta decidir el corte.
 - Tests: `test_multitenant.py`, `test_agent.py`, `test_sqlite_numeric.py`.
@@ -371,3 +448,9 @@ DATABASE_URL=sqlite:////tmp/ft_import_test.db python -m scripts.seed_accounts
 - OpenCode Go y Jev están configurados y verificados con llamadas reales; los tests unitarios siguen usando dobles.
 - `frontend-v2` está instalado, compila y ya se sirve en Docker `:3000`; `frontend/` legacy sigue en el repo como referencia y ya no lo usa Docker.
 - F6/F7: posiciones de apertura/FIFO completo, E2E Playwright, CI de migración PostgreSQL real, backups automáticos y observabilidad.
+
+## Sección IA unificada 2026-11-22
+
+- Todo lo relacionado con IA vive bajo `/ai`, con pestañas: Asistente (`/ai/assistant`), Asesor (`/ai/advisor`), Skills (`/ai/skills`), Automatizaciones (`/ai/automations`) y Configuración (`/ai/settings`: proveedores, memoria y modelos de importación Jev/OpenCode Go).
+- Ajustes ya no tiene las secciones Asistente ni Modelos. Las URLs antiguas (`/assistant`, `/advisor`, `/skills`, `/automations`, `/settings?section=asistente|modelos`) redirigen en `next.config.ts`.
+- La navegación lateral tiene una sola entrada «IA»; en móvil, «IA» sustituye a «Importar» en la barra inferior (importar sigue en la barra superior).

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-HEAD = "v3_014_agent"
+HEAD = "v3_016_memory_advisor"
 
 
 def _run_alembic(db_path: Path, *args: str) -> subprocess.CompletedProcess:

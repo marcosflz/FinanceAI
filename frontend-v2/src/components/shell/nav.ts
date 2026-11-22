@@ -1,10 +1,13 @@
 import {
   Bot,
+  SlidersHorizontal,
   ChartNoAxesCombined,
   LayoutDashboard,
   ListFilter,
   Settings,
+  Wand2,
   Sparkles,
+  Target,
   UploadCloud,
   Wallet,
   type LucideIcon,
@@ -61,15 +64,51 @@ export const navItems: NavItem[] = [
     keywords: ["cartera", "inversión", "posiciones", "etf", "cripto", "p&l"],
   },
   {
-    href: "/assistant",
-    label: "Asistente",
+    href: "/ai",
+    label: "IA",
     shortLabel: "IA",
+    icon: Sparkles,
+    description: "Asistente, asesor, skills, automatizaciones y configuración de IA",
+    keywords: ["ia", "inteligencia artificial", "chat", "asistente", "agente", "asesor", "skills", "bots", "memoria"],
+  },
+  {
+    href: "/settings",
+    label: "Ajustes",
+    shortLabel: "Ajustes",
+    icon: Settings,
+    description: "Perfil, reglas, cuentas, seguridad y datos",
+    keywords: ["ajustes", "configuración", "reglas", "modelos", "seguridad"],
+  },
+];
+
+/** Subsecciones de IA: pestañas de /ai y entradas de la paleta de comandos. */
+export const aiSections: NavItem[] = [
+  {
+    href: "/ai/assistant",
+    label: "Asistente",
+    shortLabel: "Chat",
     icon: Sparkles,
     description: "Chat con tus finanzas y aprobaciones",
     keywords: ["ia", "chat", "asistente", "agente", "preguntar"],
   },
   {
-    href: "/automations",
+    href: "/ai/advisor",
+    label: "Asesor",
+    shortLabel: "Asesor",
+    icon: Target,
+    description: "Consejos diarios de mantener, comprar o vender",
+    keywords: ["asesor", "recomendaciones", "comprar", "vender", "mantener", "noticias", "mercado"],
+  },
+  {
+    href: "/ai/skills",
+    label: "Skills",
+    shortLabel: "Skills",
+    icon: Wand2,
+    description: "Procedimientos reutilizables creados con ayuda",
+    keywords: ["skills", "habilidades", "procedimientos", "crear skill", "plantillas"],
+  },
+  {
+    href: "/ai/automations",
     label: "Automatizaciones",
     shortLabel: "Bots",
     icon: Bot,
@@ -77,22 +116,22 @@ export const navItems: NavItem[] = [
     keywords: ["bots", "programar", "cron", "alertas", "resumen semanal"],
   },
   {
-    href: "/settings",
-    label: "Ajustes",
-    shortLabel: "Ajustes",
-    icon: Settings,
-    description: "Reglas, modelos, privacidad y datos",
-    keywords: ["ajustes", "configuración", "reglas", "modelos", "seguridad"],
+    href: "/ai/settings",
+    label: "Configuración",
+    shortLabel: "Config.",
+    icon: SlidersHorizontal,
+    description: "Proveedores, memoria del asistente y modelos de importación",
+    keywords: ["proveedores", "claves", "api key", "memoria", "modelos", "jev", "opencode", "typesafe"],
   },
 ];
 
 export const mobileNavItems = navItems.filter((item) =>
-  ["/", "/movements", "/imports", "/accounts", "/portfolio"].includes(item.href),
+  ["/", "/movements", "/accounts", "/portfolio", "/ai"].includes(item.href),
 );
 
 export function sectionLabel(pathname: string): string {
   if (pathname === "/") return "Dashboard";
-  const item = [...navItems]
+  const item = [...aiSections, ...navItems]
     .sort((a, b) => b.href.length - a.href.length)
     .find((entry) => entry.href !== "/" && pathname.startsWith(entry.href));
   return item?.label ?? "Financial Tools";

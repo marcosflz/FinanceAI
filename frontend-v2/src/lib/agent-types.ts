@@ -26,7 +26,7 @@ export interface AiProviderConfig {
 export interface ChatThread {
   id: number;
   title: string;
-  origin: "chat" | "routine";
+  origin: "chat" | "routine" | "skill_creator";
   bot_id: number | null;
   provider: string | null;
   model: string | null;
@@ -76,7 +76,8 @@ export type MessagePart =
       args: Record<string, unknown>;
       result: unknown;
     }
-  | { type: "approvals"; items: AgentApproval[] };
+  | { type: "approvals"; items: AgentApproval[] }
+  | { type: "skill"; name: string };
 
 export interface ChatMessage {
   id: number | string;
@@ -113,6 +114,7 @@ export type AgentEvent = EventBase &
         result: unknown;
       }
     | { type: "APPROVAL_REQUIRED"; approvals: AgentApproval[] }
+    | { type: "SKILL_ACTIVATED"; name: string; id: string }
     | { type: "RUN_FINISHED"; status: "completed" | "interrupted" }
     | { type: "RUN_ERROR"; status: string; message: string }
   );
@@ -146,6 +148,7 @@ export interface Bot {
   last_status: string | null;
   last_thread_id: number | null;
   last_error: string | null;
+  skill_ids: number[];
 }
 
 export interface BotInput {
@@ -157,6 +160,7 @@ export interface BotInput {
   enabled?: boolean;
   provider?: string | null;
   model?: string | null;
+  skill_ids?: number[];
 }
 
 export interface AgentNotification {
@@ -168,4 +172,127 @@ export interface AgentNotification {
   bot_id: number | null;
   read: boolean;
   created_at: string;
+}
+
+// ── Skills ───────────────────────────────────────────────────────────────────
+
+export interface SkillVersionRef {
+  id: number;
+  version: number;
+  created_at: string;
+}
+
+export interface Skill {
+  id: number;
+  name: string;
+  description: string;
+  enabled_in_chat: boolean;
+  source: string;
+  version: number | null;
+  versions: SkillVersionRef[];
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** Contenido de texto por ruta; ``null`` si el archivo es binario. */
+export type SkillFiles = Record<string, string | null>;
+
+export interface SkillDetail extends Skill {
+  files: SkillFiles;
+}
+
+export interface SkillValidation {
+  ok: boolean;
+  error?: string;
+  name?: string;
+  description?: string;
+  files?: string[];
+}
+
+export interface SkillDraftSummary {
+  id: number;
+  skill_id: number | null;
+  thread_id: number;
+  base_version_id: number | null;
+  revision: number;
+  name: string | null;
+  valid: boolean;
+  status: ChatThread["status"];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SkillDraftDetail extends SkillDraftSummary {
+  files: SkillFiles;
+  base_files: SkillFiles | null;
+  validation: SkillValidation | null;
+  messages: ChatMessage[];
+  active_run_id: number | null;
+}
+
+// ── Memoria y asesor ─────────────────────────────────────────────────────────
+
+export interface AgentMemory {
+  id: number;
+  key: string;
+  value: string;
+  category: "profile" | "preference" | "goal" | "asset" | "fact";
+  source: "assistant" | "user";
+  source_thread_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type Horizon = "corto" | "medio" | "largo";
+export type AdviceAction = "mantener" | "comprar" | "vender";
+
+export interface Recommendation {
+  id?: number;
+  symbol: string;
+  name?: string | null;
+  asset_id?: number | null;
+  horizon: Horizon;
+  action: AdviceAction;
+  confidence: "baja" | "media" | "alta";
+  rationale: string;
+  sources: string[];
+  price?: number | null;
+  currency?: string | null;
+  thread_id?: number | null;
+  created_at?: string;
+}
+
+export interface AdvisorAsset {
+  symbol: string;
+  name: string | null;
+  asset_id: number | null;
+  horizons: Partial<Record<Horizon, Recommendation>>;
+  updated_at: string | null;
+}
+
+export interface AdvisorStatus {
+  skill_installed: boolean;
+  bot: Bot | null;
+  last_report_at: string | null;
+  recommendations: number;
+}
+
+export interface AdvisorEvaluation {
+  items: (Recommendation & { current_price: number; change_pct: number; hit: boolean })[];
+  by_horizon: Partial<Record<Horizon, { hits: number; total: number }>>;
+  hit_rate: number | null;
+  evaluated: number;
+}
+
+export interface NewsFeed {
+  name: string;
+  url: string;
+}
+
+export interface NewsItem {
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  published_at: string | null;
 }

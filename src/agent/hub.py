@@ -46,12 +46,32 @@ async def start(turn: AsyncIterator[dict[str, Any]]) -> int:
     key = _key(run_id)
     _runs[key] = live
 
+    async def publish(event: dict[str, Any]) -> None:
+        async with live.changed:
+            live.events.append(event)
+            live.changed.notify_all()
+
     async def pump() -> None:
+        # La cancelación (``cancel``) siempre se entrega *dentro* del turno, que
+        # la convierte en ``RUN_ERROR status=cancelled`` y cierra el run en BD.
+        pending_cancel = False
         try:
-            async for event in turn:
-                async with live.changed:
-                    live.events.append(event)
-                    live.changed.notify_all()
+            while True:
+                try:
+                    if pending_cancel:
+                        pending_cancel = False
+                        event = await turn.athrow(asyncio.CancelledError())
+                    else:
+                        event = await anext(turn)
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
+                    break
+                try:
+                    await publish(event)
+                except asyncio.CancelledError:
+                    pending_cancel = True
+                    await publish(event)
         finally:
             async with live.changed:
                 live.done = True
@@ -62,6 +82,15 @@ async def start(turn: AsyncIterator[dict[str, Any]]) -> int:
 
     live.task = asyncio.create_task(pump())
     return run_id
+
+
+def cancel(run_id: int) -> bool:
+    """Detiene un run en curso de este proceso. ``False`` si no está vivo aquí."""
+    live = _runs.get(_key(run_id))
+    if live is None or live.done or live.task is None:
+        return False
+    live.task.cancel()
+    return True
 
 
 def thread_is_live(thread_id: int) -> bool:

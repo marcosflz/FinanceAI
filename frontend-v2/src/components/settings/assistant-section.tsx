@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Field, Input } from "@/components/ui/form";
 import { SelectMenu } from "@/components/ui/select-menu";
+import { MemoryCard } from "@/components/settings/memory-card";
 import { useToast } from "@/components/ui/toast";
 
 function ProviderCard({
@@ -343,6 +344,7 @@ export function AssistantSection() {
           </p>
         </CardContent>
       </Card>
+      <MemoryCard />
     </div>
   );
 }

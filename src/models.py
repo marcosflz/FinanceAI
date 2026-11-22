@@ -979,7 +979,7 @@ class ChatThread(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(200), nullable=False, default="Nueva conversación")
-    origin = Column(String(20), nullable=False, default="chat")  # chat | routine
+    origin = Column(String(20), nullable=False, default="chat")  # chat | routine | skill_creator
     bot_id = Column(Integer, ForeignKey("bots.id", ondelete="SET NULL"), nullable=True)
     provider = Column(String(40), nullable=True)
     model = Column(String(120), nullable=True)
@@ -1099,8 +1099,99 @@ class Bot(Base):
     last_status = Column(String(20), nullable=True)
     last_thread_id = Column(Integer, nullable=True)
     last_error = Column(Text, nullable=True)
+    # Skills (ids de ``skills``) que el bot puede activar; ``None`` = ninguna.
+    skill_ids_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True)
+
+
+class Skill(Base):
+    """Skill de la biblioteca del usuario (formato Agent Skills: ``SKILL.md`` + recursos)."""
+
+    __tablename__ = "skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False)
+    description = Column(Text, nullable=False)
+    current_version_id = Column(Integer, nullable=True)
+    enabled_in_chat = Column(Boolean, nullable=False, default=True)
+    source = Column(String(20), nullable=False, default="creator")  # creator | import
+    deleted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+
+class SkillVersion(Base):
+    """Versión publicada e inmutable de una skill (``SkillPackage`` serializado)."""
+
+    __tablename__ = "skill_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    digest = Column(String(64), nullable=False)
+    package_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("skill_id", "version", name="uq_skill_version"),)
+
+
+class SkillDraft(Base):
+    """Borrador que edita el creador de skills en su conversación."""
+
+    __tablename__ = "skill_drafts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="SET NULL"), nullable=True)
+    thread_id = Column(Integer, ForeignKey("chat_threads.id", ondelete="CASCADE"), nullable=False)
+    base_version_id = Column(Integer, nullable=True)
+    files_json = Column(Text, nullable=False, default="{}")  # {path: base64}
+    revision = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AgentMemory(Base):
+    """Recuerdo duradero del asistente (perfil inversor, preferencias, notas de activos).
+
+    Vive en la BD cifrada del usuario; la UI permite revisarlo y borrarlo.
+    """
+
+    __tablename__ = "agent_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(128), nullable=False, unique=True)
+    value = Column(Text, nullable=False)
+    category = Column(String(20), nullable=False, default="fact")
+    source = Column(String(20), nullable=False, default="assistant")  # assistant | user
+    source_thread_id = Column(
+        Integer, ForeignKey("chat_threads.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AdvisorRecommendation(Base):
+    """Consejo orientativo del asesor para un activo y horizonte (histórico inmutable)."""
+
+    __tablename__ = "advisor_recommendations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(Integer, ForeignKey("chat_threads.id", ondelete="SET NULL"), nullable=True)
+    run_id = Column(Integer, nullable=True)
+    asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    symbol = Column(String(30), nullable=False)
+    name = Column(String(255), nullable=True)
+    horizon = Column(String(10), nullable=False)  # corto | medio | largo
+    action = Column(String(10), nullable=False)  # mantener | comprar | vender
+    confidence = Column(String(10), nullable=False, default="media")  # baja | media | alta
+    rationale = Column(Text, nullable=False)
+    sources_json = Column(Text, nullable=True)
+    price = Column(Numeric(18, 6), nullable=True)
+    currency = Column(String(3), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (Index("ix_advisor_symbol_created", "symbol", "created_at"),)
 
 
 class Notification(Base):

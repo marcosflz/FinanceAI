@@ -3,12 +3,10 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  BrainCircuit,
   Database,
   FlaskConical,
   Info,
   KeyRound,
-  Sparkles,
   Landmark,
   Settings2,
   ShieldCheck,
@@ -21,11 +19,9 @@ import { GeneralSection } from "@/components/settings/general-section";
 import { CategoriesSection } from "@/components/settings/categories-section";
 import { RulesSection } from "@/components/settings/rules-section";
 import { AccountsSettingsSection } from "@/components/settings/accounts-section";
-import { ModelsSection } from "@/components/settings/models-section";
 import { PrivacySection } from "@/components/settings/privacy-section";
 import { DataSection } from "@/components/settings/data-section";
 import { SecuritySection } from "@/components/settings/security-section";
-import { AssistantSection } from "@/components/settings/assistant-section";
 import { cn } from "@/lib/utils";
 
 const sections: Array<{
@@ -38,8 +34,6 @@ const sections: Array<{
   { value: "categorias", label: "Categorías", description: "Taxonomía", icon: Tags },
   { value: "reglas", label: "Reglas", description: "Clasificación determinista", icon: FlaskConical },
   { value: "cuentas", label: "Cuentas", description: "IBAN y patrones", icon: Landmark },
-  { value: "modelos", label: "Modelos", description: "Jev y OpenCode Go", icon: BrainCircuit },
-  { value: "asistente", label: "Asistente", description: "Proveedores y claves de IA", icon: Sparkles },
   { value: "seguridad", label: "Seguridad", description: "Cifrado, recuperación y usuarios", icon: KeyRound },
   { value: "privacidad", label: "Privacidad", description: "Redacción y sesiones", icon: ShieldCheck },
   { value: "datos", label: "Datos", description: "Exportar y backup", icon: Database },
@@ -50,8 +44,6 @@ const sectionComponents: Record<string, React.ComponentType> = {
   categorias: CategoriesSection,
   reglas: RulesSection,
   cuentas: AccountsSettingsSection,
-  modelos: ModelsSection,
-  asistente: AssistantSection,
   seguridad: SecuritySection,
   privacidad: PrivacySection,
   datos: DataSection,
@@ -69,7 +61,7 @@ export function SettingsView() {
       <PageHeader
         eyebrow="Configuración"
         title="Ajustes"
-        description="Perfil, taxonomía, reglas, cuentas, modelos y datos. Las secciones están separadas para que cada cambio tenga un contrato y una auditoría claros."
+        description="Perfil, taxonomía, reglas, cuentas y datos. Las secciones están separadas para que cada cambio tenga un contrato y una auditoría claros."
         actions={
           <Badge variant="outline">
             <span className="num text-[10px]">Configuración real</span>
@@ -83,7 +75,9 @@ export function SettingsView() {
           Perfil, seguridad, cuentas, modelos, categorías y etiquetas ya persisten en
           el backend. Los formularios de reglas/datos siguen siendo visuales y de
           contrato. La gestión de cuentas también está en{" "}
-          <Link href="/accounts" className="font-medium text-foreground underline underline-offset-2">/accounts</Link>.
+          <Link href="/accounts" className="font-medium text-foreground underline underline-offset-2">/accounts</Link>
+          {" "}y la configuración de IA (proveedores, memoria y modelos) en{" "}
+          <Link href="/ai/settings" className="font-medium text-foreground underline underline-offset-2">IA → Configuración</Link>.
         </p>
       </div>
 
